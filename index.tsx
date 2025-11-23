@@ -10,11 +10,12 @@ import {
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, 
-  PieChart, Pie, Cell 
+  PieChart, Pie, Cell, LabelList 
 } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
+import * as XLSX from 'xlsx';
 
 // --- Types ---
 interface MaterialRecord {
@@ -206,12 +207,36 @@ const Dashboard = ({ data, viewMode, setViewMode }: {
           </h3>
           <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats.chartData}>
+              <BarChart data={stats.chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                <XAxis dataKey="name" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} cursor={{ fill: '#1e293b' }} />
-                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                <XAxis 
+                  dataKey="name" 
+                  stroke="#cbd5e1" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fill: '#e2e8f0' }} 
+                />
+                <YAxis 
+                  stroke="#64748b" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                />
+                <RechartsTooltip 
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} 
+                  itemStyle={{ color: '#f8fafc' }}
+                  cursor={{ fill: '#1e293b' }} 
+                />
+                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40}>
+                  <LabelList 
+                    dataKey="value" 
+                    position="top" 
+                    fill="#cbd5e1" 
+                    fontSize={12} 
+                    formatter={(val: number) => val.toLocaleString()} 
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -224,12 +249,44 @@ const Dashboard = ({ data, viewMode, setViewMode }: {
           <div className="flex-1 min-h-0 relative">
              <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={stats.statusData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                <Pie 
+                  data={stats.statusData} 
+                  innerRadius={60} 
+                  outerRadius={80} 
+                  paddingAngle={5} 
+                  dataKey="value"
+                  label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name, value }) => {
+                    const RADIAN = Math.PI / 180;
+                    const radius = outerRadius + 20;
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                    
+                    if (value === 0) return null;
+
+                    return (
+                      <text 
+                        x={x} 
+                        y={y} 
+                        fill="#cbd5e1" 
+                        textAnchor={x > cx ? 'start' : 'end'} 
+                        dominantBaseline="central" 
+                        fontSize={11}
+                        fontWeight="500"
+                      >
+                        {`${name}: ${value}`}
+                      </text>
+                    );
+                  }}
+                  labelLine={{ stroke: '#475569' }}
+                >
                   {stats.statusData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} stroke="rgba(0,0,0,0)" />
                   ))}
                 </Pie>
-                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} />
+                <RechartsTooltip 
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} 
+                  itemStyle={{ color: '#f8fafc' }}
+                />
                 <Legend verticalAlign="middle" align="right" layout="vertical" iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
@@ -556,26 +613,81 @@ const ReportView = ({ data }: { data: MaterialRecord[] }) => {
   );
 };
 
-// 3. FILE IMPORT MODAL (Unchanged logic, just simplified for length)
+// 3. FILE IMPORT MODAL (Updated logic for XLSX)
 const FileImportModal = ({ isOpen, onClose, onImport }: { isOpen: boolean, onClose: () => void, onImport: (data: Partial<MaterialRecord>[]) => void }) => {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (isOpen) setFile(null); // Reset on open
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const processFile = () => {
-    if (!fileName) return;
+  const processFile = async () => {
+    if (!file) return;
     setIsProcessing(true);
-    // Simulating file processing
-    setTimeout(() => {
-      onImport(CATALOGO_MATERIAIS); // In a real app, we parse the file here
-      setIsProcessing(false);
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      // Assuming columns: [Code, MaterialName, Category, Unit, PredictedDemand, ..., Rota, Comarca]
+      // Or map by header names if present. For safety, let's look for headers.
+      // Simple logic: treat first row as header if strings, try to map.
+      // If no headers, assume specific order.
+      // Let's assume standard format:
+      // Code | Material | Unit | Predicted | Rota | Comarca
+
+      const headers = (jsonData[0] as string[]).map(h => String(h).toLowerCase().trim());
+      
+      const parsedRecords: Partial<MaterialRecord>[] = [];
+      
+      // Simple header mapping helper
+      const getIndex = (keys: string[]) => headers.findIndex(h => keys.some(k => h.includes(k)));
+
+      const idxCode = getIndex(['cód', 'cod', 'code']);
+      const idxName = getIndex(['material', 'descri', 'name']);
+      const idxUnit = getIndex(['unid', 'unit']);
+      const idxPrev = getIndex(['previ', 'demanda', 'demand']);
+      const idxRota = getIndex(['rota']);
+      const idxComarca = getIndex(['comarca', 'local']);
+
+      for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i] as any[];
+        if (!row || row.length === 0) continue;
+
+        const record: Partial<MaterialRecord> = {};
+        
+        if (idxCode >= 0) record.code = String(row[idxCode] || '');
+        if (idxName >= 0) record.materialName = String(row[idxName] || '');
+        if (idxUnit >= 0) record.unit = String(row[idxUnit] || '');
+        if (idxPrev >= 0) record.predictedDemand = Number(row[idxPrev] || 0);
+        if (idxRota >= 0) record.rota = String(row[idxRota] || '');
+        if (idxComarca >= 0) record.comarca = String(row[idxComarca] || '');
+        
+        // Basic Validation: must have at least a material name
+        if (record.materialName) {
+           parsedRecords.push(record);
+        }
+      }
+
+      onImport(parsedRecords);
       onClose();
-    }, 2000);
+
+    } catch (error) {
+      console.error("Error reading file:", error);
+      alert("Erro ao ler arquivo. Verifique se é um Excel válido.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) setFileName(e.target.files[0].name);
+    if (e.target.files && e.target.files.length > 0) setFile(e.target.files[0]);
   };
 
   return (
@@ -586,24 +698,32 @@ const FileImportModal = ({ isOpen, onClose, onImport }: { isOpen: boolean, onClo
           <button onClick={onClose}><X size={20} className="text-slate-500 hover:text-white"/></button>
         </div>
         <div className="p-8">
-          {!fileName ? (
-            <div className="border-2 border-dashed border-slate-700 rounded-xl h-48 flex flex-col items-center justify-center bg-slate-950/50">
+          {!file ? (
+            <div className="border-2 border-dashed border-slate-700 rounded-xl h-48 flex flex-col items-center justify-center bg-slate-950/50 hover:bg-slate-900/50 transition-colors">
               <Upload size={32} className="text-slate-500 mb-4"/>
-              <p className="text-slate-400 mb-4">Arraste PDF, Excel ou Imagem</p>
+              <p className="text-slate-400 mb-4 font-medium">Arraste PDF, Excel ou Imagem</p>
               <label className="cursor-pointer">
-                <input type="file" className="hidden" onChange={handleFileSelect} accept=".pdf,.xlsx,.csv,.jpg" />
-                <span className="px-4 py-2 bg-slate-800 rounded-lg text-sm hover:bg-slate-700 text-white">Selecionar Arquivo</span>
+                <input type="file" className="hidden" onChange={handleFileSelect} accept=".pdf,.xlsx,.xls,.csv" />
+                <span className="px-4 py-2 bg-slate-800 rounded-lg text-sm hover:bg-slate-700 text-white font-medium transition-colors shadow-lg border border-slate-700">Selecionar Arquivo</span>
               </label>
             </div>
           ) : (
-            <div className="text-center">
+            <div className="flex flex-col items-center">
               {isProcessing ? (
-                <div className="flex flex-col items-center"><Loader2 className="animate-spin text-blue-500 mb-2" size={32}/> Processando...</div>
+                <div className="flex flex-col items-center py-8"><Loader2 className="animate-spin text-blue-500 mb-4" size={40}/> <span className="text-slate-400">Processando dados...</span></div>
               ) : (
-                 <>
-                   <div className="bg-slate-800 p-3 rounded mb-4 text-white">{fileName}</div>
-                   <Button onClick={processFile} className="w-full">Confirmar Importação</Button>
-                 </>
+                 <div className="w-full space-y-4">
+                   <div className="bg-slate-800 p-4 rounded-xl text-white text-center border border-slate-700 font-medium break-all flex flex-col items-center gap-2">
+                     <FileSpreadsheet size={32} className="text-emerald-500" />
+                     {file.name}
+                     <div className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</div>
+                   </div>
+                   
+                   <div className="flex gap-3">
+                     <Button onClick={() => setFile(null)} variant="secondary" className="flex-1">Escolher Outro</Button>
+                     <Button onClick={processFile} className="flex-1 shadow-blue-900/40">Confirmar Importação</Button>
+                   </div>
+                 </div>
               )}
             </div>
           )}
@@ -860,12 +980,31 @@ const InputTable = ({
                     </td></tr>
                   ) : displayedData.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-800/40 transition-colors bg-slate-900/20 group">
-                      <td className="p-4 text-xs font-mono text-slate-500 text-center">{item.code || '-'}</td>
-                      {isAdmin && <td className="p-4 text-xs text-slate-400 truncate max-w-[120px]" title={item.comarca}>{item.comarca}</td>}
-                      <td className="p-4 font-medium text-white group-hover:text-blue-300 transition-colors">
-                        {item.materialName}
-                        <div className="text-[10px] text-slate-600 font-normal mt-0.5">{item.category}</div>
+                      
+                      <td className="p-4 text-center">
+                        <input 
+                          type="text" 
+                          disabled={!isAdmin}
+                          value={item.code || ''}
+                          onChange={(e) => onUpdate(item.id, 'code', e.target.value)}
+                          className={`w-full max-w-[100px] text-xs font-mono text-center bg-transparent border rounded px-2 py-1 outline-none transition-all ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-slate-300' : 'border-transparent text-slate-500 cursor-default'}`}
+                          placeholder="-"
+                        />
                       </td>
+
+                      {isAdmin && <td className="p-4 text-xs text-slate-400 truncate max-w-[120px]" title={item.comarca}>{item.comarca}</td>}
+                      
+                      <td className="p-4">
+                        <input 
+                          type="text"
+                          disabled={!isAdmin}
+                          value={item.materialName}
+                          onChange={(e) => onUpdate(item.id, 'materialName', e.target.value)}
+                          className={`w-full font-medium bg-transparent border rounded px-2 py-1 outline-none transition-all ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-white' : 'border-transparent text-white cursor-default group-hover:text-blue-300'}`}
+                        />
+                        <div className="text-[10px] text-slate-600 font-normal mt-0.5 px-2">{item.category}</div>
+                      </td>
+                      
                       <td className="p-4 text-center"><span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">{item.unit}</span></td>
                       
                       {/* PREVISTO COLUMN CELL */}
@@ -931,7 +1070,7 @@ const LoginScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const [adminError, setAdminError] = useState(false);
 
   // System Customization State
-  const [systemName, setSystemName] = useState(() => localStorage.getItem('sys_name') || 'Previsão de Prefil');
+  const [systemName, setSystemName] = useState(() => localStorage.getItem('sys_name') || 'Previsão de Perfil');
   const [systemLogo, setSystemLogo] = useState(() => localStorage.getItem('sys_logo') || null);
 
   // Regional Selection State
@@ -1129,8 +1268,52 @@ const App = () => {
 
   const handleImportData = (newData: Partial<MaterialRecord>[]) => {
     // In a real scenario, this would merge imported data with existing records
-    // For now, we assume it refills the current view's items
-    alert("Dados importados com sucesso! (Simulação)");
+    // For now, we assume it refills the current view's items with matches from imported data.
+    // However, to keep it simple as per original behavior, we just alert or could refresh the dataset.
+    // The previous implementation was just alerting.
+    
+    // Let's implement a basic update logic: if imported data matches comarca/material, update predicted demand or similar.
+    // Or if the user wants to REPLACE the data, we would do that. 
+    // Given the prompt "update codigo, comarca, rota, descricao, unid, previsto", let's try to update existing records
+    // or create new ones if they don't exist.
+    
+    // For simplicity in this demo without backend:
+    // We will map over existing materials and see if we find a match in newData to update.
+    
+    setMaterials(prev => {
+       const updatedMaterials = [...prev];
+       
+       newData.forEach(newRecord => {
+          // Try to find a match by Material Name and Comarca (if provided)
+          // If no comarca in newRecord, maybe apply to all? 
+          // Let's assume the import file contains specific rows for specific comarcas.
+          
+          if (newRecord.materialName && newRecord.comarca) {
+             const index = updatedMaterials.findIndex(m => 
+                m.comarca === newRecord.comarca && 
+                m.materialName === newRecord.materialName
+             );
+             
+             if (index >= 0) {
+                // Update existing
+                updatedMaterials[index] = { 
+                   ...updatedMaterials[index], 
+                   ...newRecord,
+                   // Preserve ID and existing quantities if not specified
+                   requestedQty: updatedMaterials[index].requestedQty,
+                   approvedQty: updatedMaterials[index].approvedQty
+                };
+             } else {
+                // Add new (optional, depends if we want to expand the list)
+                // For now, let's just update existing to avoid duplicates if ID logic isn't robust
+             }
+          }
+       });
+       
+       return updatedMaterials;
+    });
+
+    alert(`Processamento concluído. ${newData.length} linhas lidas.`);
   };
 
   if (!currentUser) {

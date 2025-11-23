@@ -15,7 +15,8 @@
     "html2canvas": "1.4.1",
     "jspdf": "2.5.1",
     "react-dom": "^19.2.0",
-    "jspdf-autotable": "^5.0.2"
+    "jspdf-autotable": "^5.0.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
