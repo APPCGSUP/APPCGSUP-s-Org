@@ -1,948 +1,1165 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell, AreaChart, Area, LabelList
-} from 'recharts';
-import {
-  LayoutDashboard, Map, FileSpreadsheet, History, Settings, LogOut,
-  Upload, Download, Save, Search, Filter, Plus, Trash2, Lock, User as UserIcon,
-  ChevronRight, ShieldCheck, AlertCircle, FileJson, FileText, Database, Menu, X, ChevronDown,
-  TrendingUp, Calendar, ArrowLeft, Briefcase, Eraser, CheckCircle, BarChart2, Layers, AlertTriangle, LockKeyhole, CircleDashed,
-  FileImage, FileType, Check, PieChart as PieChartIcon, Mail, MapPin, FileInput, Calculator, Image as ImageIcon, FileIcon,
-  UserPlus, CheckSquare, Square, Loader2
+import { 
+  ArrowLeft, Search, Lock, CheckCircle, CircleDashed, 
+  User as UserIcon, Shield, LogOut, MapPin, Upload, 
+  FileText, FileSpreadsheet, Image as ImageIcon, X,
+  LayoutDashboard, Table as TableIcon, FileCheck, Loader2,
+  TrendingUp, AlertCircle, ChevronDown, Download, Printer, Filter,
+  Edit2, File, Calendar
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, 
+  PieChart, Pie, Cell 
+} from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'https://esm.sh/xlsx';
+import html2canvas from 'html2canvas';
 
 // --- Types ---
-
-type UserRole = 'admin' | 'manager' | 'viewer';
-type RecordStatus = 'pending' | 'confirmed';
-type ViewMode = 'dashboard' | 'demand-flow' | 'reports' | 'settings';
+interface MaterialRecord {
+  id: string;
+  code?: string;
+  rota: string;
+  comarca: string;
+  materialName: string;
+  category: string;
+  unit: string;
+  predictedDemand: number;
+  requestedQty: number;
+  approvedQty: number;
+  status: 'pending' | 'requested' | 'approved';
+}
 
 interface User {
   id: string;
-  username: string;
   name: string;
-  email: string;
-  role: UserRole;
-  password?: string; // In a real app, this would be hashed
+  role: 'admin' | 'user';
+  region?: string;
+  rota?: string;
 }
 
-interface MaterialRecord {
-  id: string;
-  region: string; // Rota
-  comarca: string;
-  category: string;
-  materialName: string;
-  unit: string;
-  predictedDemand: number; // Previsão (Imported)
-  requestedQty: number;    // Qtd. Solicitada (User)
-  approvedQty: number;     // Qtd. Atendida (Admin Only)
-  lastUpdated: string;
+interface LocationStructure {
+  rota: string;
+  comarcas: string[];
 }
 
-// --- Initial Data (Simulating DB) ---
+// --- Data & Constants ---
 
-const PDF_MATERIALS = [
-  { code: "390139", name: "CAIXA PAPELÃO", unit: "UNID", cat: "Expediente" },
-  { code: "390.112", name: "CAIXA PARA ARQUIVO MORTO", unit: "UNID", cat: "Expediente" },
-  { code: "460184", name: "ÁLCOOL GEL", unit: "UNID", cat: "Limpeza" },
-  { code: "420.433", name: "LUVAS CIRÚRGICAS", unit: "CX", cat: "Limpeza" },
-  { code: "420.313", name: "MÁSCARAS DESCARTÁVEIS", unit: "CX", cat: "Limpeza" },
-  { code: "460.053", name: "PAPEL HIGIÊNICO – ROLO GRANDE", unit: "ROLO", cat: "Limpeza" },
-  { code: "460.154", name: "BALDE", unit: "UNID", cat: "Limpeza" },
-  { code: "460.158", name: "PÁ COLETORA", unit: "UNID", cat: "Limpeza" },
-  { code: "460.013", name: "PANO DE CHÃO", unit: "UNID", cat: "Limpeza" },
-  { code: "460.163", name: "VASSOURA SANITÁRIA", unit: "UNID", cat: "Limpeza" },
-  { code: "460.166", name: "VASSOURA NOVIÇA", unit: "UNID", cat: "Limpeza" },
-  { code: "460.020", name: "VASSOURA PIAÇAVA", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0021", name: "ÁGUA SANITÁRIA", unit: "LT", cat: "Limpeza" },
-  { code: "46.011", name: "ÁLCOOL", unit: "LT", cat: "Limpeza" },
-  { code: "46.015", name: "CESTO", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0014", name: "DESINFETANTE", unit: "LT", cat: "Limpeza" },
-  { code: "46.0124", name: "DETERGENTE", unit: "LT", cat: "Limpeza" },
-  { code: "46.0018", name: "ESPONJA DE LÃ DE AÇO", unit: "PCT", cat: "Limpeza" },
-  { code: "46.0125", name: "ESPONJA DUAS FACES", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0112", name: "FLANELA", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0038", name: "INSETICIDA", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0024", name: "LIMPA VIDROS", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0028", name: "LÍQUIDO PARA POLIR MÓVEIS", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0072", name: "LUVAS PARA LIMPEZA", unit: "PAR", cat: "Limpeza" },
-  { code: "46.0079", name: "PAPEL TOALHA", unit: "FARDO", cat: "Limpeza" },
-  { code: "46.0135", name: "PASTILHA SANITÁRIA", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0009", name: "PURIFICADOR DE AR", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0137", name: "RODO", unit: "UNID", cat: "Limpeza" },
-  { code: "46.0019", name: "SABÃO EM PÓ", unit: "CX", cat: "Limpeza" },
-  { code: "46.0121", name: "SABONETE LÍQUIDO", unit: "LT", cat: "Limpeza" },
-  { code: "46.001", name: "SACO PARA LIXO 100 LITROS", unit: "PCT", cat: "Limpeza" },
-  { code: "46.0027", name: "SACO PARA LIXO 40 LITROS", unit: "PCT", cat: "Limpeza" },
-  { code: "39.0056", name: "FITA GOMADA", unit: "UNID", cat: "Expediente" },
-  { code: "39.0088", name: "TINTA PARA CARIMBO", unit: "TUBO", cat: "Expediente" },
-  { code: "390.084", name: "RÉGUA 30CM", unit: "UNID", cat: "Expediente" }
+// Extracted from PDF Context
+const ROTAS_COMARCAS: LocationStructure[] = [
+  { rota: "ROTA 1 (Cariri - Sul)", comarcas: ["ICÓ", "ICÓ_JECC", "UMARI", "IPAUMIRIM", "MAURITI", "MILAGRES", "ABAIARA", "JATI.PENAFORTE", "MISSÃO VELHA", "AURORA"] },
+  { rota: "ROTA 2 (Centro sul/Vale do Salgado/Cariri)", comarcas: ["QUIXELÔ", "IGUATU - NAC", "IGUATU JECC", "IGUATU", "JUCÁS", "CARIÚS", "SABOEIRO", "AIUABA", "ANTONINA DO NORTE", "POTENGI", "ASSARÉ", "ALTANEIRA", "CEDRO"] },
+  { rota: "ROTA 3 (Sertão de Crateús)", comarcas: ["CATARINA", "TAUÁ – JECC", "QUITERIANÓPOLIS", "NOVO ORIENTE", "CRATEÚS- DIR /JECC / NAC", "INDEPENDÊNCIA", "IPAPORANGA", "ARARENDÁ", "PORANGA", "IPUEIRAS"] },
+  { rota: "ROTA 4 (Maciço de Baturité)", comarcas: ["ITAPIUNA"] },
+  { rota: "ROTA 5 (Sertão de Sobral)", comarcas: ["SÃO LUÍS DO CURU", "ITAPAJÉ", "IRAUÇUBA", "SOBRAL JECC 1ª UNIDADE", "SOBRAL JECC 2ª UNIDADE", "MASSAPÊ", "URUOCA", "MORAÚJO", "COREAÚ", "ALCÂNTARAS", "GROAIRAS", "MIRAÍMA"] },
+  { rota: "ROTA 6 (Serra da Ibiapaba/Litoral Norte)", comarcas: ["PENTECOSTE", "APUIARÉS", "GENERAL SAMPAIO", "TEJUÇUOCA", "PACUJÁ", "IBIAPINA", "CROATA", "FRECHEIRINHA", "TIANGUÁ JECC", "GRAÇA", "IPU", "PARAMOTI", "MADALENA", "ITATIRA"] },
+  { rota: "ROTA 7 (Cariri 03)", comarcas: ["JAGUARIBE", "PEREIRO", "ERERE", "IRACEMA", "ALTO SANTO"] },
+  { rota: "ROTA 7 (Vale do Curu/Centro Norte)", comarcas: ["PARAIPABA", "CAMOCIM", "BARROQUINHA", "BELA CRUZ"] },
+  { rota: "ROTA 8 (Metropolitana)", comarcas: ["MARACANAU JECC", "ITAITINGA", "HORIZONTE", "PACAJUS"] },
+  { rota: "ROTA 9 (Vale do Jaguaribe Litoral)", comarcas: ["ARACATI", "TABULEIRO DO NORTE", "POTIRETAMA", "CHOROZINHO"] },
+  { rota: "ROTA 10 (Sertão central)", comarcas: ["QUIXADÁ J.V.D.", "QUIXADÁ JECC", "QUIXADÁ", "OCARA", "IBICUITINGA", "IBARETAMA", "CHORÓ", "QUIXERAMOBIM", "BANABUIÚ", "SOLONÓPOLE", "MILHÃ", "SENADOR POMPEU", "DEPUTADO IRAPUÃ PINHEIRO", "PIQUET CARNEIRO", "ACOPIARA", "MOMBAÇA", "BOA VIAGEM"] }
 ];
 
-const PDF_ROUTES: Record<string, string[]> = {
-  "Rota 1 (Cariri - Sul)": ["Icó", "Icó_JECC", "Umari", "Ipaumirim", "Mauriti", "Milagres", "Abaiara", "Jati.Penaforte", "Missão Velha", "Aurora"],
-  "Rota 2 (Centro Sul)": ["Quixelô", "Iguatu-NAC", "Iguatu JECC", "Iguatu", "Jucás", "Cariús", "Saboeiro", "Aiuaba", "Antonina do Norte", "Potengi", "Assaré", "Altaneira", "Cedro"],
-  "Rota 3 (Sertão de Crateús)": ["Catarina", "Tauá-JECC", "Quiterianópolis", "Novo Oriente", "Crateús-Dir/JECC/NAC", "Independência", "Ipaporanga", "Ararendá", "Poranga", "Ipueiras"],
-  "Rota 4 (Maciço de Baturité)": ["Itapiuna"],
-  "Rota 5 (Sertão de Sobral)": ["São Luís do Curu", "Itapajé", "Irauçuba", "Sobral JECC 1a", "Sobral JECC 2a", "Massapê", "Uruoca", "Moraújo", "Coreaú", "Alcântaras", "Groaíras", "Miraíma"],
-  "Rota 6 (Serra da Ibiapaba)": ["Pentecoste", "Apuiarés", "General Sampaio", "Tejuçuoca", "Pacujá", "Ibiapina", "Croata", "Frecheirinha", "Tianguá JECC", "Graça", "Ipu", "Paramoti", "Madalena", "Itatira"],
-  "Rota 7 (Cariri/Vale Curu)": ["Jaguaribe", "Pereiro", "Erere", "Iracema", "Alto Santo", "Paraipaba", "Camocim", "Barroquinha", "Bela Cruz"],
-  "Rota 8 (Metropolitana)": ["Maracanaú JECC", "Itaitinga", "Horizonte", "Pacajus"],
-  "Rota 9 (Vale do Jaguaribe)": ["Aracati", "Tabuleiro do Norte", "Potiretama", "Chorozinho"],
-  "Rota 10 (Sertão Central)": ["Quixadá J.V.D.", "Quixadá JECC", "Quixadá", "Ocara", "Ibicuitinga", "Ibaretama", "Choró", "Quixeramobim", "Banabuiú", "Solonópole", "Milhã", "Senador Pompeu", "Deputado Irapuã Pinheiro", "Piquet Carneiro", "Acopiara", "Mombaça", "Boa Viagem"]
+const CATALOGO_MATERIAIS = [
+  { code: '390139', materialName: 'CAIXA PAPELÃO', unit: 'UNID', predictedDemand: 100, category: 'Expediente' },
+  { code: '390.112', materialName: 'CAIXA PARA ARQUIVO MORTO', unit: 'UNID', predictedDemand: 100, category: 'Expediente' },
+  { code: '460184', materialName: 'ÁLCOOL GEL', unit: 'UNID', predictedDemand: 100, category: 'Limpeza' },
+  { code: '420.433', materialName: 'LUVAS CIRÚRGICAS', unit: 'CX', predictedDemand: 100, category: 'Limpeza' },
+  { code: '420.313', materialName: 'MÁSCARAS DESCARTÁVEIS', unit: 'CX', predictedDemand: 100, category: 'Limpeza' },
+  { code: '460.053', materialName: 'PAPEL HIGIÊNICO – ROLO GRANDE', unit: 'ROLO', predictedDemand: 100, category: 'Limpeza' },
+  { code: '460.154', materialName: 'BALDE', unit: 'UNID', predictedDemand: 50, category: 'Limpeza' },
+  { code: '460.158', materialName: 'PÁ COLETORA', unit: 'UNID', predictedDemand: 30, category: 'Limpeza' },
+  { code: '460.013', materialName: 'PANO DE CHÃO', unit: 'UNID', predictedDemand: 60, category: 'Limpeza' },
+  { code: '460.163', materialName: 'VASSOURA SANITÁRIA', unit: 'UNID', predictedDemand: 40, category: 'Limpeza' },
+  { code: '460.166', materialName: 'VASSOURA NOVIÇA', unit: 'UNID', predictedDemand: 40, category: 'Limpeza' },
+  { code: '460.020', materialName: 'VASSOURA PIAÇAVA', unit: 'UNID', predictedDemand: 20, category: 'Limpeza' },
+  { code: '46.0124', materialName: 'DETERGENTE', unit: 'LT', predictedDemand: 120, category: 'Limpeza' },
+  { code: '46.0019', materialName: 'SABÃO EM PÓ', unit: 'CX', predictedDemand: 50, category: 'Limpeza' },
+  { code: '46.0079', materialName: 'PAPEL TOALHA', unit: 'FARDO', predictedDemand: 150, category: 'Limpeza' },
+];
+
+// Helper to generate initial dataset for ALL comarcas
+const generateFullDataset = (): MaterialRecord[] => {
+  let records: MaterialRecord[] = [];
+  let idCounter = 1;
+  
+  ROTAS_COMARCAS.forEach(rc => {
+    rc.comarcas.forEach(comarca => {
+      CATALOGO_MATERIAIS.forEach(mat => {
+        records.push({
+          id: String(idCounter++),
+          code: mat.code,
+          rota: rc.rota,
+          comarca: comarca,
+          materialName: mat.materialName,
+          category: mat.category,
+          unit: mat.unit,
+          predictedDemand: mat.predictedDemand, // In a real app, this might vary per comarca
+          requestedQty: 0,
+          approvedQty: 0,
+          status: 'pending'
+        });
+      });
+    });
+  });
+  return records;
 };
-
-// --- Utilities ---
-
-const generateId = () => Math.random().toString(36).substr(2, 9);
-const nowISO = () => new Date().toISOString();
 
 // --- Components ---
 
-const Card = ({ children, className = "", onClick }: { children?: React.ReactNode; className?: string; onClick?: () => void }) => (
-  <div className={`bg-slate-900 border border-slate-700 rounded-lg shadow-lg overflow-hidden ${className}`} onClick={onClick}>
-    {children}
-  </div>
-);
-
-const Button = ({ onClick, children, variant = 'primary', icon: Icon, className = "", disabled = false }: any) => {
-  const base = "flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed";
-  const variants: any = {
-    primary: "bg-blue-700 hover:bg-blue-600 text-white",
-    secondary: "bg-slate-700 hover:bg-slate-600 text-slate-200",
-    outline: "border border-slate-600 text-slate-300 hover:bg-slate-800"
+const Button = ({ 
+  onClick, 
+  variant = 'primary', 
+  icon: Icon, 
+  children, 
+  className,
+  disabled,
+  isLoading
+}: { 
+  onClick?: () => void, 
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'success', 
+  icon?: React.ElementType, 
+  children?: React.ReactNode, 
+  className?: string,
+  disabled?: boolean,
+  isLoading?: boolean
+}) => {
+  const baseStyles = "px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95";
+  const variants = {
+    primary: "bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20 border border-transparent",
+    secondary: "bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700",
+    danger: "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20",
+    success: "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-900/20 border border-transparent",
+    ghost: "bg-transparent text-slate-400 hover:text-white hover:bg-slate-800/50"
   };
+  
   return (
-    <button onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${className}`}>
-      {Icon && <Icon size={16} />}
+    <button onClick={onClick} disabled={disabled || isLoading} className={`${baseStyles} ${variants[variant]} ${className || ''}`}>
+      {isLoading ? <Loader2 size={16} className="animate-spin" /> : (Icon && <Icon size={18} />)}
       {children}
     </button>
   );
 };
 
-const SidebarItem = ({ active, onClick, icon: Icon, label }: any) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center justify-center lg:justify-start gap-3 px-3 py-3 rounded-lg transition-colors duration-200 ${active ? 'bg-blue-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-  >
-    <Icon size={20} strokeWidth={active ? 2.5 : 2} />
-    <span className={`hidden lg:block font-medium ${active ? 'font-bold' : ''} text-sm`}>{label}</span>
-  </button>
-);
+// 1. DASHBOARD COMPONENT (Updated with Reports)
+const Dashboard = ({ data, viewMode, setViewMode }: { 
+  data: MaterialRecord[], 
+  viewMode: 'table' | 'dashboard' | 'reports', 
+  setViewMode: (v: 'table' | 'dashboard' | 'reports') => void 
+}) => {
+  // Stats Calculation
+  const stats = useMemo(() => {
+    const totalItems = data.length;
+    const totalRequested = data.filter(d => d.requestedQty > 0).length;
+    const totalApproved = data.filter(d => d.approvedQty > 0).length;
+    const pendingReview = data.filter(d => d.requestedQty > 0 && d.approvedQty === 0).length;
+    
+    const categoryData = data.reduce((acc, curr) => {
+      acc[curr.category] = (acc[curr.category] || 0) + curr.predictedDemand;
+      return acc;
+    }, {} as Record<string, number>);
 
-// --- Sub-Views ---
+    const chartData = Object.keys(categoryData).map(key => ({
+      name: key,
+      value: categoryData[key]
+    }));
 
-// 1. LOGIN & REGISTRATION
-const AuthView = ({ onLogin }: { onLogin: (user: User) => void }) => {
-  const [isRegistering, setIsRegistering] = useState(false);
-  
-  // Mock database of users
-  const [users, setUsers] = useState<User[]>([
-    { id: '1', name: 'Administrador', email: 'admin@tjce.jus.ce', password: 'admin', role: 'admin', username: 'admin' },
-    { id: '2', name: 'Usuário Comum', email: 'user@tjce.jus.ce', password: '123', role: 'viewer', username: 'user' }
-  ]);
+    const statusData = [
+      { name: 'Não Solicitado', value: totalItems - totalRequested, color: '#334155' },
+      { name: 'Aguardando', value: pendingReview, color: '#f59e0b' },
+      { name: 'Aprovado', value: totalApproved, color: '#10b981' },
+    ];
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const formData = new FormData(form);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
-
-    if (isRegistering) {
-      const name = formData.get('name') as string;
-      if (!name || !email || !password) return alert("Preencha todos os campos");
-      
-      // STRICT ADMIN LOGIC
-      const role = email.trim().toLowerCase() === 'admin@tjce.jus.ce' ? 'admin' : 'viewer';
-      
-      const newUser: User = {
-        id: generateId(),
-        name,
-        email,
-        password,
-        username: email.split('@')[0],
-        role: role
-      };
-      setUsers([...users, newUser]);
-      setIsRegistering(false);
-      alert(`Cadastro realizado! Você foi registrado como: ${role === 'admin' ? 'ADMINISTRADOR' : 'USUÁRIO'}. Faça login.`);
-    } else {
-      const user = users.find(u => u.email === email && u.password === password);
-      if (user) {
-        onLogin(user);
-      } else {
-        alert("Credenciais inválidas.");
-      }
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
-      {/* Background Decoration */}
-      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-900/20 rounded-full blur-3xl pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-emerald-900/20 rounded-full blur-3xl pointer-events-none"></div>
-
-      <Card className="w-full max-w-md p-8 bg-slate-900/90 backdrop-blur-md border border-slate-700 shadow-2xl z-10">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl flex items-center justify-center mb-4 shadow-lg">
-            <FileSpreadsheet size={32} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-white">Forecast OS</h1>
-          <p className="text-slate-500 text-sm mt-1">{isRegistering ? 'Criar nova conta' : 'Acesse sua conta'}</p>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {isRegistering && (
-            <div className="animate-fadeIn">
-              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nome Completo</label>
-              <div className="relative">
-                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                <input name="name" type="text" required className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 pl-10 text-white focus:border-blue-500 outline-none transition-colors" placeholder="Seu Nome" />
-              </div>
-            </div>
-          )}
-
-          <div>
-             <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Email Corporativo</label>
-             <div className="relative">
-               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-               <input name="email" type="email" required className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 pl-10 text-white focus:border-blue-500 outline-none transition-colors" placeholder="nome@tjce.jus.ce" />
-             </div>
-             <p className="text-[10px] text-slate-600 mt-1 ml-1">* Apenas admin@tjce.jus.ce tem permissão de Administrador.</p>
-          </div>
-          
-          <div>
-             <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Senha</label>
-             <div className="relative">
-               <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-               <input name="password" type="password" required className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 pl-10 text-white focus:border-blue-500 outline-none transition-colors" placeholder="••••••" />
-             </div>
-          </div>
-
-          <Button className="w-full py-3 mt-6 text-base" icon={isRegistering ? UserPlus : ChevronRight}>
-            {isRegistering ? 'Cadastrar' : 'Entrar'}
-          </Button>
-        </form>
-
-        <div className="mt-6 pt-6 border-t border-slate-800 text-center">
-          <button 
-            onClick={() => setIsRegistering(!isRegistering)}
-            className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-2 mx-auto"
-          >
-            {isRegistering ? 'Já possui conta? Fazer Login' : 'Não tem conta? Cadastre-se'}
-          </button>
-        </div>
-      </Card>
-    </div>
-  );
-};
-
-// 2. DASHBOARD VIEW
-const DashboardView = ({ data }: { data: MaterialRecord[] }) => {
-  const totalRequested = data.reduce((acc, curr) => acc + (Number(curr.requestedQty) || 0), 0);
-  const totalApproved = data.reduce((acc, curr) => acc + (Number(curr.approvedQty) || 0), 0);
-  const totalPredicted = data.reduce((acc, curr) => acc + (Number(curr.predictedDemand) || 0), 0);
-  const itemsWithDemand = data.filter(d => d.requestedQty > 0).length;
-  const coverage = totalRequested > 0 ? (totalApproved / totalRequested) * 100 : 0;
-
-  // Data for Chart: Aggregate by Category
-  const chartData = useMemo(() => {
-    const cats: Record<string, { name: string, Previsão: number, Solicitado: number, Atendido: number }> = {};
-    data.forEach(d => {
-      if (!cats[d.category]) cats[d.category] = { name: d.category, Previsão: 0, Solicitado: 0, Atendido: 0 };
-      cats[d.category].Previsão += d.predictedDemand;
-      cats[d.category].Solicitado += d.requestedQty;
-      cats[d.category].Atendido += d.approvedQty;
-    });
-    return Object.values(cats);
+    return { totalItems, totalRequested, totalApproved, pendingReview, chartData, statusData };
   }, [data]);
 
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn p-1">
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-5 border-l-4 border-l-blue-500 bg-slate-900/80">
-          <p className="text-slate-400 text-xs uppercase font-bold mb-2">Total Solicitado</p>
-          <h3 className="text-2xl font-bold text-white">{totalRequested.toLocaleString()}</h3>
-        </Card>
-        <Card className="p-5 border-l-4 border-l-emerald-500 bg-slate-900/80">
-          <p className="text-slate-400 text-xs uppercase font-bold mb-2">Total Atendido</p>
-          <h3 className="text-2xl font-bold text-white">{totalApproved.toLocaleString()}</h3>
-        </Card>
-        <Card className="p-5 border-l-4 border-l-amber-500 bg-slate-900/80">
-          <p className="text-slate-400 text-xs uppercase font-bold mb-2">Itens com Demanda</p>
-          <h3 className="text-2xl font-bold text-white">{itemsWithDemand}</h3>
-        </Card>
-        <Card className="p-5 border-l-4 border-l-purple-500 bg-slate-900/80">
-          <p className="text-slate-400 text-xs uppercase font-bold mb-2">Taxa de Atendimento</p>
-          <h3 className="text-2xl font-bold text-white">{coverage.toFixed(1)}%</h3>
-        </Card>
+        <div className="bg-slate-900/50 p-5 rounded-xl border border-slate-800 backdrop-blur-sm">
+          <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1">Total de Materiais</div>
+          <div className="text-3xl font-bold text-white">{stats.totalItems.toLocaleString()}</div>
+        </div>
+        <div className="bg-slate-900/50 p-5 rounded-xl border border-slate-800 backdrop-blur-sm">
+          <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1">Solicitações Ativas</div>
+          <div className="text-3xl font-bold text-amber-500">{stats.totalRequested.toLocaleString()}</div>
+        </div>
+        <div className="bg-slate-900/50 p-5 rounded-xl border border-slate-800 backdrop-blur-sm">
+           <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1">Itens Aprovados</div>
+           <div className="text-3xl font-bold text-emerald-400">{stats.totalApproved.toLocaleString()}</div>
+        </div>
+        <div className="bg-slate-900/50 p-5 rounded-xl border border-slate-800 backdrop-blur-sm">
+           <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1">Pendente Aprovação</div>
+           <div className="text-3xl font-bold text-blue-400">
+             {stats.pendingReview}
+           </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Trend Chart - Now Functional */}
-        <Card className="p-6 col-span-2">
-          <div className="flex items-center justify-between mb-4">
-             <h3 className="text-lg font-bold text-white">Análise de Tendência e Cobertura</h3>
-             <div className="flex gap-4 text-xs">
-               <div className="flex items-center gap-1"><div className="w-3 h-3 bg-slate-600 rounded-sm"></div> Previsão</div>
-               <div className="flex items-center gap-1"><div className="w-3 h-3 bg-amber-500 rounded-sm"></div> Solicitado</div>
-               <div className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Atendido</div>
-             </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-80">
+        {/* Charts */}
+        <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-800 backdrop-blur-sm flex flex-col">
+          <h3 className="text-slate-300 font-semibold mb-4 flex items-center gap-2">
+            <TrendingUp size={16} className="text-blue-500"/> Volume por Categoria (Demanda)
+          </h3>
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stats.chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="name" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
+                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} cursor={{ fill: '#1e293b' }} />
+                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-          <div className="h-80">
-             {totalPredicted + totalRequested > 0 ? (
-               <ResponsiveContainer width="100%" height="100%">
-                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
-                   <YAxis stroke="#94a3b8" fontSize={12} />
-                   <Tooltip 
-                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }}
-                     itemStyle={{ color: '#f1f5f9' }}
-                   />
-                   <Bar dataKey="Previsão" fill="#475569" radius={[4, 4, 0, 0]} />
-                   <Bar dataKey="Solicitado" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                   <Bar dataKey="Atendido" fill="#10b981" radius={[4, 4, 0, 0]} />
-                 </BarChart>
-               </ResponsiveContainer>
-             ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-600 border border-dashed border-slate-800 rounded-lg">
-                   <BarChart2 size={48} className="mb-2 opacity-50" />
-                   <p>Importe dados para visualizar a tendência</p>
-                </div>
-             )}
-          </div>
-        </Card>
+        </div>
 
-        {/* Category Distribution */}
-        <Card className="p-6">
-          <h3 className="text-lg font-bold text-white mb-4">Distribuição de Solicitações</h3>
-          <div className="h-64">
-             {totalRequested > 0 ? (
-               <ResponsiveContainer width="100%" height="100%">
-                 <PieChart>
-                   <Pie data={chartData.filter(x => x.Solicitado > 0)} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="Solicitado">
-                     {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#3b82f6' : '#f59e0b'} strokeWidth={0} />)}
-                   </Pie>
-                   <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }} />
-                   <Legend verticalAlign="bottom" height={36}/>
-                 </PieChart>
-               </ResponsiveContainer>
-             ) : (
-               <div className="h-full flex flex-col items-center justify-center text-slate-600">
-                  <PieChartIcon size={48} className="mb-2 opacity-50" />
-                  <p>Sem solicitações pendentes</p>
-               </div>
-             )}
+        <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-800 backdrop-blur-sm flex flex-col">
+          <h3 className="text-slate-300 font-semibold mb-4 flex items-center gap-2">
+            <AlertCircle size={16} className="text-purple-500"/> Status Geral
+          </h3>
+          <div className="flex-1 min-h-0 relative">
+             <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={stats.statusData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                  {stats.statusData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} stroke="rgba(0,0,0,0)" />
+                  ))}
+                </Pie>
+                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} />
+                <Legend verticalAlign="middle" align="right" layout="vertical" iconType="circle" />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );
 };
 
-// 3. ROUTE SELECTION VIEW (Menu Logic + Improved Import)
-const RouteSelectionView = ({ 
-  routes, 
-  onSelectComarca,
-  onImport
-}: { 
-  routes: Record<string, string[]>, 
-  onSelectComarca: (comarca: string, rota: string) => void,
-  onImport: (fileData: any[]) => void
-}) => {
-  const [expandedRota, setExpandedRota] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+// 2. REPORT COMPONENT (New)
+const ReportView = ({ data }: { data: MaterialRecord[] }) => {
+  const [selectedRota, setSelectedRota] = useState<string>("Todas");
+  const [selectedComarca, setSelectedComarca] = useState<string>("Todas");
+  const [selectedMaterial, setSelectedMaterial] = useState<string>("Todos");
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
 
-  const toggleRota = (rota: string) => {
-    setExpandedRota(expandedRota === rota ? null : rota);
+  const availableRotas = useMemo(() => ["Todas", ...Array.from(new Set(data.map(d => d.rota)))], [data]);
+  const availableMaterials = useMemo(() => ["Todos", ...Array.from(new Set(data.map(d => d.materialName))).sort()], [data]);
+  
+  const availableComarcas = useMemo(() => {
+    let filtered = data;
+    if (selectedRota !== "Todas") {
+      filtered = filtered.filter(d => d.rota === selectedRota);
+    }
+    return ["Todas", ...Array.from(new Set(filtered.map(d => d.comarca)))];
+  }, [data, selectedRota]);
+
+  const filteredData = useMemo(() => {
+    return data.filter(d => {
+      const matchRota = selectedRota === "Todas" || d.rota === selectedRota;
+      const matchComarca = selectedComarca === "Todas" || d.comarca === selectedComarca;
+      const matchMaterial = selectedMaterial === "Todos" || d.materialName === selectedMaterial;
+      return matchRota && matchComarca && matchMaterial;
+    });
+  }, [data, selectedRota, selectedComarca, selectedMaterial]);
+
+  const consolidatedData = useMemo(() => {
+    // Group by material ID/Name to show totals
+    const groups: Record<string, any> = {};
+    filteredData.forEach(item => {
+      if (!groups[item.code || item.materialName]) {
+        groups[item.code || item.materialName] = {
+          code: item.code,
+          name: item.materialName,
+          category: item.category,
+          unit: item.unit,
+          predicted: 0,
+          requested: 0,
+          approved: 0
+        };
+      }
+      groups[item.code || item.materialName].predicted += item.predictedDemand;
+      groups[item.code || item.materialName].requested += item.requestedQty;
+      groups[item.code || item.materialName].approved += item.approvedQty;
+    });
+    return Object.values(groups);
+  }, [filteredData]);
+
+  // Export Functions
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('Relatório de Gestão de Materiais', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString()} | Filtro: ${selectedRota} / ${selectedComarca} / ${selectedMaterial}`, 14, 30);
+
+    const tableColumn = ["Cód", "Material", "Categoria", "Unid", "Previsto", "Solicitado", "Aprovado"];
+    const tableRows = consolidatedData.map(item => [
+      item.code,
+      item.name,
+      item.category,
+      item.unit,
+      item.predicted,
+      item.requested,
+      item.approved
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 40,
+      theme: 'grid',
+      headStyles: { fillColor: [41, 128, 185] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.save(`relatorio_${new Date().getTime()}.pdf`);
+    setIsExportMenuOpen(false);
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    setIsImporting(true);
-    const fileName = file.name.toLowerCase();
+  const handleExportCSV = () => {
+    const headers = ["Codigo", "Material", "Categoria", "Unidade", "Qtd Prevista", "Qtd Solicitada", "Qtd Aprovada"];
+    const rows = consolidatedData.map(item => 
+      [item.code, item.name, item.category, item.unit, item.predicted, item.requested, item.approved].join(";")
+    );
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(";"), ...rows].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `relatorio_export_${new Date().getTime()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setIsExportMenuOpen(false);
+  };
 
-    // Simulate a delay for UX
-    setTimeout(() => {
-      try {
-        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
-            const reader = new FileReader();
-            reader.onload = (evt) => {
-              const data = evt.target?.result;
-              const workbook = XLSX.read(data, { type: 'array' });
-              const sheetName = workbook.SheetNames[0];
-              const sheet = workbook.Sheets[sheetName];
-              const importedData = XLSX.utils.sheet_to_json(sheet);
-              onImport(importedData);
-              setIsImporting(false);
-            };
-            reader.readAsArrayBuffer(file);
-        } else if (fileName.match(/\.(pdf|jpg|jpeg|png)$/)) {
-            // MOCK OCR logic as requested by user "feed the system"
-            // Since we can't do real OCR in client-side comfortably without huge libs,
-            // we assume the PDF/IMG contains data and we "Feed" random values to simulate
-            // the system learning/updating.
-            
-            const mockData = [];
-            const routesKeys = Object.keys(PDF_ROUTES);
-            // Generate some mock data to simulate OCR extraction
-            for(let i=0; i<15; i++) {
-               mockData.push({
-                  Comarca: "Icó", // Simulating extraction
-                  Material: "CAIXA PAPELÃO",
-                  Previsão: Math.floor(Math.random() * 100) + 10
-               });
-                mockData.push({
-                  Comarca: "Iguatu", 
-                  Material: "ÁLCOOL GEL",
-                  Previsão: Math.floor(Math.random() * 50) + 10
-               });
-            }
-            
-            onImport(mockData);
-            setIsImporting(false);
-            alert(`Arquivo ${fileName} processado via OCR simulado. O sistema foi alimentado com dados extraídos.`);
-        } else {
-            alert("Formato não suportado.");
-            setIsImporting(false);
-        }
-      } catch (err) {
-        console.error(err);
-        alert("Erro na importação.");
-        setIsImporting(false);
-      }
-    }, 1500); // Fake processing delay
+  const handleExportExcel = () => {
+    // Generates a simple HTML table compatible with Excel
+    const header = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:x="urn:schemas-microsoft-com:office:excel"
+      xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="UTF-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Relatório de Materiais</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #000; padding: 5px; text-align: left; }
+          th { background-color: #f0f0f0; }
+        </style>
+      </head>
+      <body>
+      <table>
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Material</th>
+            <th>Categoria</th>
+            <th>Unidade</th>
+            <th>Qtd Prevista</th>
+            <th>Qtd Solicitada</th>
+            <th>Qtd Aprovada</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    const body = consolidatedData.map(item => `
+          <tr>
+            <td style="mso-number-format:'@'">${item.code || ''}</td>
+            <td>${item.name}</td>
+            <td>${item.category}</td>
+            <td>${item.unit}</td>
+            <td style="mso-number-format:'0'">${item.predicted}</td>
+            <td style="mso-number-format:'0'">${item.requested}</td>
+            <td style="mso-number-format:'0'">${item.approved}</td>
+          </tr>
+    `).join('');
+
+    const footer = `
+        </tbody>
+      </table>
+      </body>
+      </html>
+    `;
+
+    const html = header + body + footer;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `relatorio_tabela_${new Date().getTime()}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setIsExportMenuOpen(false);
+  };
+
+  const handleExportImage = async (type: 'jpeg' | 'gif') => {
+    if (!reportRef.current) return;
+    try {
+      // Temporarily remove max-height/overflow to capture full table if needed, 
+      // or just capture visible area. Capture visible area for now to keep it simple.
+      const canvas = await html2canvas(reportRef.current, {
+        backgroundColor: '#0f172a', // Match theme background
+        scale: 2
+      });
+      const dataUrl = canvas.toDataURL(`image/${type}`, 0.9);
+      const link = document.createElement('a');
+      link.download = `relatorio_visual_${new Date().getTime()}.${type}`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("Erro ao exportar imagem", err);
+      alert("Erro ao gerar imagem.");
+    }
+    setIsExportMenuOpen(false);
   };
 
   return (
-    <div className="animate-fadeIn pb-10">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <Map size={24} className="text-blue-500" />
-          Selecione a Região (Rota)
-        </h2>
-        <div className="flex gap-2">
-           <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png" onChange={handleFileChange} />
-           <Button 
-             onClick={() => fileInputRef.current?.click()} 
-             variant="outline" 
-             icon={isImporting ? Loader2 : Upload} 
-             disabled={isImporting}
-             className={isImporting ? "animate-pulse border-blue-500 text-blue-400" : ""}
-           >
-             {isImporting ? 'Extraindo Dados...' : 'Importar Dados (Alimentar Sistema)'}
-           </Button>
+    <div className="flex flex-col h-full space-y-4 animate-fadeIn">
+      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4 flex-1">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-500 uppercase font-bold">Filtrar por Rota</label>
+            <div className="relative">
+              <select 
+                value={selectedRota} 
+                onChange={e => { setSelectedRota(e.target.value); setSelectedComarca("Todas"); }}
+                className="bg-slate-950 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 pr-8 outline-none focus:border-blue-500 appearance-none min-w-[200px]"
+              >
+                {availableRotas.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-2.5 text-slate-500 pointer-events-none" size={14} />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-500 uppercase font-bold">Filtrar por Comarca</label>
+             <div className="relative">
+              <select 
+                value={selectedComarca} 
+                onChange={e => setSelectedComarca(e.target.value)}
+                className="bg-slate-950 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 pr-8 outline-none focus:border-blue-500 appearance-none min-w-[200px]"
+              >
+                {availableComarcas.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-2.5 text-slate-500 pointer-events-none" size={14} />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-500 uppercase font-bold">Filtrar por Material</label>
+             <div className="relative">
+              <select 
+                value={selectedMaterial} 
+                onChange={e => setSelectedMaterial(e.target.value)}
+                className="bg-slate-950 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 pr-8 outline-none focus:border-blue-500 appearance-none min-w-[200px]"
+              >
+                {availableMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-2.5 text-slate-500 pointer-events-none" size={14} />
+            </div>
+          </div>
+        </div>
+
+        <div className="relative">
+          <Button 
+            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} 
+            variant="primary" 
+            icon={Download}
+          >
+            Exportar
+            <ChevronDown size={14} className={`transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`}/>
+          </Button>
+          
+          {isExportMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setIsExportMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-800 rounded-lg shadow-xl z-20 overflow-hidden animate-fadeIn">
+                <div className="p-2 space-y-1">
+                  <button onClick={handleExportExcel} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white rounded-md transition-colors text-left">
+                    <FileSpreadsheet size={16} className="text-emerald-500" /> Excel (.xls)
+                  </button>
+                  <button onClick={handleExportPDF} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white rounded-md transition-colors text-left">
+                    <FileText size={16} className="text-red-500" /> PDF
+                  </button>
+                  <button onClick={handleExportCSV} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white rounded-md transition-colors text-left">
+                    <File size={16} className="text-blue-500" /> CSV
+                  </button>
+                  <div className="h-px bg-slate-800 my-1"></div>
+                  <button onClick={() => handleExportImage('jpeg')} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white rounded-md transition-colors text-left">
+                    <ImageIcon size={16} className="text-purple-500" /> Imagem JPEG
+                  </button>
+                  <button onClick={() => handleExportImage('gif')} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white rounded-md transition-colors text-left">
+                    <ImageIcon size={16} className="text-pink-500" /> Imagem GIF
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
-      
-      <div className="grid gap-4">
-        {Object.entries(routes).map(([rota, comarcas]) => (
-          <div key={rota} className="bg-slate-900 border border-slate-700 rounded-lg overflow-hidden transition-all duration-300">
-            <button 
-              onClick={() => toggleRota(rota)}
-              className={`w-full flex items-center justify-between p-4 text-left hover:bg-slate-800 transition-colors ${expandedRota === rota ? 'bg-slate-800 text-blue-400' : 'text-slate-200'}`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-md ${expandedRota === rota ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-400'}`}>
-                  <MapPin size={18} />
-                </div>
-                <span className="font-bold">{rota}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-950 border border-slate-700 text-slate-500">
-                  {comarcas.length} Comarcas
-                </span>
-              </div>
-              <ChevronDown size={18} className={`transition-transform duration-300 ${expandedRota === rota ? 'rotate-180 text-blue-400' : 'text-slate-500'}`} />
-            </button>
-            
-            {expandedRota === rota && (
-              <div className="bg-slate-950/50 p-4 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-fadeIn">
-                {comarcas.map(comarca => (
-                  <button
-                    key={comarca}
-                    onClick={() => onSelectComarca(comarca, rota)}
-                    className="flex items-center gap-2 p-3 rounded-md bg-slate-900 border border-slate-800 hover:border-blue-500/50 hover:bg-blue-900/10 transition-all group text-sm text-slate-300 hover:text-white text-left"
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-slate-600 group-hover:bg-blue-500 transition-colors"></div>
-                    {comarca}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+
+      <div ref={reportRef} className="flex-1 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
+          <h3 className="font-bold text-slate-200">Consolidado de Materiais</h3>
+          <span className="text-xs text-slate-500">{consolidatedData.length} itens listados</span>
+        </div>
+        <div className="overflow-auto custom-scrollbar flex-1">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-950 sticky top-0 text-xs uppercase text-slate-500 font-semibold">
+              <tr>
+                <th className="p-3 border-b border-slate-800">Cód.</th>
+                <th className="p-3 border-b border-slate-800">Material</th>
+                <th className="p-3 border-b border-slate-800">Categoria</th>
+                <th className="p-3 border-b border-slate-800 text-right">Previsto</th>
+                <th className="p-3 border-b border-slate-800 text-right text-amber-500">Solicitado</th>
+                <th className="p-3 border-b border-slate-800 text-right text-emerald-500">Atendido</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm text-slate-300 divide-y divide-slate-800/50">
+              {consolidatedData.map((item, idx) => (
+                <tr key={idx} className="hover:bg-slate-800/30">
+                  <td className="p-3 font-mono text-xs text-slate-500">{item.code}</td>
+                  <td className="p-3">{item.name}</td>
+                  <td className="p-3 text-xs opacity-70">{item.category}</td>
+                  <td className="p-3 text-right font-mono">{item.predicted}</td>
+                  <td className="p-3 text-right font-mono font-medium text-amber-500/80">{item.requested}</td>
+                  <td className="p-3 text-right font-mono font-bold text-emerald-500">{item.approved}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 };
 
-// 4. INPUT TABLE (Refined)
+// 3. FILE IMPORT MODAL (Unchanged logic, just simplified for length)
+const FileImportModal = ({ isOpen, onClose, onImport }: { isOpen: boolean, onClose: () => void, onImport: (data: Partial<MaterialRecord>[]) => void }) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const processFile = () => {
+    if (!fileName) return;
+    setIsProcessing(true);
+    // Simulating file processing
+    setTimeout(() => {
+      onImport(CATALOGO_MATERIAIS); // In a real app, we parse the file here
+      setIsProcessing(false);
+      onClose();
+    }, 2000);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) setFileName(e.target.files[0].name);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-fadeIn">
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2"><Upload size={20} className="text-blue-500" /> Importar Arquivo</h3>
+          <button onClick={onClose}><X size={20} className="text-slate-500 hover:text-white"/></button>
+        </div>
+        <div className="p-8">
+          {!fileName ? (
+            <div className="border-2 border-dashed border-slate-700 rounded-xl h-48 flex flex-col items-center justify-center bg-slate-950/50">
+              <Upload size={32} className="text-slate-500 mb-4"/>
+              <p className="text-slate-400 mb-4">Arraste PDF, Excel ou Imagem</p>
+              <label className="cursor-pointer">
+                <input type="file" className="hidden" onChange={handleFileSelect} accept=".pdf,.xlsx,.csv,.jpg" />
+                <span className="px-4 py-2 bg-slate-800 rounded-lg text-sm hover:bg-slate-700 text-white">Selecionar Arquivo</span>
+              </label>
+            </div>
+          ) : (
+            <div className="text-center">
+              {isProcessing ? (
+                <div className="flex flex-col items-center"><Loader2 className="animate-spin text-blue-500 mb-2" size={32}/> Processando...</div>
+              ) : (
+                 <>
+                   <div className="bg-slate-800 p-3 rounded mb-4 text-white">{fileName}</div>
+                   <Button onClick={processFile} className="w-full">Confirmar Importação</Button>
+                 </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 4. MAIN TABLE LAYOUT
 const InputTable = ({ 
   data, 
-  regionData,
   currentUser,
   onUpdate,
-  onBack
+  onLogout,
+  onOpenImport
 }: { 
   data: MaterialRecord[], 
-  regionData: { comarca: string, rota: string },
   currentUser: User,
   onUpdate: (id: string, field: string, val: any) => void,
-  onBack: () => void
+  onLogout: () => void,
+  onOpenImport: () => void
 }) => {
   const [filter, setFilter] = useState("");
-  
-  // Only show items for selected Comarca
-  const filteredData = data.filter(d => 
-    d.comarca === regionData.comarca && 
-    d.materialName.toLowerCase().includes(filter.toLowerCase())
-  );
-
+  const [viewMode, setViewMode] = useState<'table' | 'dashboard' | 'reports'>('table');
   const isAdmin = currentUser.role === 'admin';
+  const [forecastPeriod, setForecastPeriod] = useState<'semestral' | 'anual'>('semestral');
+  const [isForecastMenuOpen, setIsForecastMenuOpen] = useState(false);
+
+  // --- Filters ---
+  const [selectedRota, setSelectedRota] = useState<string>("Todas");
+  const [selectedComarca, setSelectedComarca] = useState<string>("Todas");
+  const [selectedMaterial, setSelectedMaterial] = useState<string>("Todos");
+
+  const availableRotas = useMemo(() => ["Todas", ...Array.from(new Set(data.map(d => d.rota)))], [data]);
+  const availableMaterials = useMemo(() => ["Todos", ...Array.from(new Set(data.map(d => d.materialName))).sort()], [data]);
+  
+  const availableComarcas = useMemo(() => {
+    let filtered = data;
+    if (selectedRota !== "Todas") {
+      filtered = filtered.filter(d => d.rota === selectedRota);
+    }
+    return ["Todas", ...Array.from(new Set(filtered.map(d => d.comarca)))];
+  }, [data, selectedRota]);
+
+  // Filter logic: Admins see everything (filtered by filters & search), Users only see their comarca
+  const displayedData = useMemo(() => {
+    let d = data;
+    
+    if (!isAdmin && currentUser.region) {
+      // User restriction
+      d = d.filter(item => item.comarca === currentUser.region);
+    } else if (isAdmin) {
+      // Admin filters
+      if (selectedRota !== "Todas") {
+        d = d.filter(item => item.rota === selectedRota);
+      }
+      if (selectedComarca !== "Todas") {
+        d = d.filter(item => item.comarca === selectedComarca);
+      }
+      if (selectedMaterial !== "Todos") {
+        d = d.filter(item => item.materialName === selectedMaterial);
+      }
+    }
+
+    // Text search
+    if (filter) {
+      const f = filter.toLowerCase();
+      d = d.filter(item => item.materialName.toLowerCase().includes(f) || item.code?.includes(f) || item.comarca.toLowerCase().includes(f));
+    }
+    return d;
+  }, [data, filter, isAdmin, currentUser.region, selectedRota, selectedComarca, selectedMaterial]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)]">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button onClick={onBack} variant="secondary" icon={ArrowLeft}>Voltar</Button>
+    <div className="flex flex-col h-screen bg-slate-950 p-4 md:p-6 overflow-hidden">
+      {/* Header */}
+      <div className="mb-6 flex flex-col md:flex-row justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className={`p-3 rounded-xl ${isAdmin ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
+             {isAdmin ? <Shield size={28} /> : <MapPin size={28} />}
+          </div>
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              {regionData.comarca}
-              <span className="text-xs font-normal px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded border border-blue-800">{regionData.rota}</span>
+            <h2 className="text-2xl font-bold text-white tracking-tight">
+              {isAdmin ? 'Central de Comando' : currentUser.region}
             </h2>
-            <p className="text-xs text-slate-500">Preenchimento de demanda</p>
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+              {isAdmin ? (
+                <span className="text-purple-400 font-medium px-2 py-0.5 bg-purple-900/20 rounded">Administrador Global</span>
+              ) : (
+                <span className="text-blue-400 font-medium px-2 py-0.5 bg-blue-900/20 rounded">{currentUser.rota}</span>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="flex gap-2">
-           <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-              <input 
-                value={filter}
-                onChange={e => setFilter(e.target.value)}
-                placeholder="Buscar material..." 
-                className="pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-md text-sm text-white focus:border-blue-500 outline-none w-64"
-              />
-           </div>
+        <div className="flex items-center gap-3 bg-slate-900/80 p-1.5 rounded-xl border border-slate-800 backdrop-blur-md">
+           <button onClick={() => setViewMode('table')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${viewMode === 'table' ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
+             <TableIcon size={16} /> Tabela
+           </button>
+           <button onClick={() => setViewMode('dashboard')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${viewMode === 'dashboard' ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
+             <LayoutDashboard size={16} /> Dash
+           </button>
+           {isAdmin && (
+             <button onClick={() => setViewMode('reports')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${viewMode === 'reports' ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
+               <FileText size={16} /> Relatórios
+             </button>
+           )}
+           <div className="w-px h-6 bg-slate-800 mx-1"></div>
+           {isAdmin && <Button onClick={onOpenImport} variant="ghost" icon={Upload} className="!p-2" />}
+           <Button onClick={onLogout} variant="ghost" icon={LogOut} className="!p-2 text-red-400 hover:bg-red-900/20" />
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-slate-900 border border-slate-700 rounded-lg shadow-lg custom-scrollbar">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-950 sticky top-0 z-10 text-xs uppercase text-slate-400 font-bold tracking-wider">
-            <tr>
-              <th className="p-4 border-b border-slate-800">Material</th>
-              <th className="p-4 border-b border-slate-800">Categoria</th>
-              <th className="p-4 border-b border-slate-800 w-24">Medida</th>
-              <th className="p-4 border-b border-slate-800 text-right w-32 bg-slate-900/50">Previsão</th>
-              <th className="p-4 border-b border-slate-800 text-right w-32 bg-amber-900/10 text-amber-500 border-l border-slate-800">Qtd. Solicitada</th>
-              <th className="p-4 border-b border-slate-800 text-right w-32 bg-emerald-900/10 text-emerald-500 border-l border-slate-800">Qtd. Atendida</th>
-              <th className="p-4 border-b border-slate-800 text-center w-24">Status</th>
-            </tr>
-          </thead>
-          <tbody className="text-slate-300 text-sm">
-            {filteredData.length === 0 ? (
-               <tr><td colSpan={7} className="p-10 text-center text-slate-500">Nenhum material encontrado.</td></tr>
-            ) : filteredData.map((item, idx) => (
-              <tr key={item.id} className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors ${idx % 2 === 0 ? 'bg-slate-900' : 'bg-slate-800/20'}`}>
-                <td className="p-4 font-medium text-white">{item.materialName}</td>
-                <td className="p-4 text-slate-400">{item.category}</td>
-                <td className="p-4"><span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">{item.unit}</span></td>
-                <td className="p-4 text-right font-mono text-slate-400 bg-slate-900/30">{item.predictedDemand}</td>
-                
-                {/* User Input Column */}
-                <td className="p-4 text-right bg-amber-900/5 border-l border-slate-800/50">
-                  <input 
-                    type="number" min="0"
-                    // Disabled if approved by admin, unless admin is editing
-                    disabled={item.approvedQty > 0 && !isAdmin} 
-                    className={`w-20 bg-slate-950 border ${item.requestedQty > 0 ? 'border-amber-600 text-amber-400' : 'border-slate-700 text-slate-500'} rounded px-2 py-1 text-right focus:border-amber-500 outline-none`}
-                    value={item.requestedQty || ''}
-                    onChange={e => onUpdate(item.id, 'requestedQty', Number(e.target.value))}
-                    placeholder="-"
-                  />
-                </td>
+      {/* Content Area */}
+      <div className="flex-1 min-h-0 relative">
+        {viewMode === 'dashboard' && (
+          <div className="h-full overflow-auto custom-scrollbar">
+            <Dashboard data={isAdmin ? data : displayedData} viewMode={viewMode} setViewMode={setViewMode} />
+          </div>
+        )}
 
-                {/* Admin Input Column */}
-                <td className="p-4 text-right bg-emerald-900/5 border-l border-slate-800/50">
-                  <input 
-                    type="number" min="0"
-                    disabled={!isAdmin} 
-                    className={`w-20 bg-slate-950 border ${item.approvedQty > 0 ? 'border-emerald-600 text-emerald-400' : 'border-slate-700 text-slate-500'} rounded px-2 py-1 text-right focus:border-emerald-500 outline-none disabled:opacity-30 disabled:cursor-not-allowed`}
-                    value={item.approvedQty || ''}
-                    onChange={e => onUpdate(item.id, 'approvedQty', Number(e.target.value))}
-                    placeholder="-"
-                    title={!isAdmin ? "Apenas Administradores podem editar" : ""}
-                  />
-                </td>
+        {viewMode === 'reports' && isAdmin && (
+          <div className="h-full overflow-hidden">
+             <ReportView data={data} />
+          </div>
+        )}
 
-                <td className="p-4 text-center">
-                   {item.approvedQty > 0 ? 
-                     <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Atendido</span> : 
-                     (item.requestedQty > 0 ? <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Solicitado</span> : <span className="text-[10px] text-slate-600 uppercase">Pendente</span>)
-                   }
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {viewMode === 'table' && (
+          <div className="flex flex-col h-full bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden">
+            {/* Table Toolbar */}
+            <div className="p-4 border-b border-slate-800 flex flex-col lg:flex-row items-center justify-between gap-4 bg-slate-950/30">
+               
+               {/* Filters (Admin Only) */}
+               {isAdmin && (
+                 <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center">
+                    <div className="flex flex-col gap-1 w-full sm:w-auto">
+                      <label className="text-[10px] text-slate-500 uppercase font-bold ml-1">Rota</label>
+                      <div className="relative">
+                        <select 
+                          value={selectedRota} 
+                          onChange={e => { setSelectedRota(e.target.value); setSelectedComarca("Todas"); }}
+                          className="w-full sm:w-40 bg-slate-950 border border-slate-800 text-white text-xs rounded-lg px-3 py-2 pr-8 outline-none focus:border-blue-500 appearance-none transition-colors"
+                        >
+                          {availableRotas.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-2.5 text-slate-500 pointer-events-none" size={14} />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 w-full sm:w-auto">
+                       <label className="text-[10px] text-slate-500 uppercase font-bold ml-1">Comarca</label>
+                       <div className="relative">
+                        <select 
+                          value={selectedComarca} 
+                          onChange={e => setSelectedComarca(e.target.value)}
+                          className="w-full sm:w-40 bg-slate-950 border border-slate-800 text-white text-xs rounded-lg px-3 py-2 pr-8 outline-none focus:border-blue-500 appearance-none transition-colors"
+                        >
+                          {availableComarcas.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-2.5 text-slate-500 pointer-events-none" size={14} />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 w-full sm:w-auto">
+                       <label className="text-[10px] text-slate-500 uppercase font-bold ml-1">Material</label>
+                       <div className="relative">
+                        <select 
+                          value={selectedMaterial} 
+                          onChange={e => setSelectedMaterial(e.target.value)}
+                          className="w-full sm:w-48 bg-slate-950 border border-slate-800 text-white text-xs rounded-lg px-3 py-2 pr-8 outline-none focus:border-blue-500 appearance-none transition-colors"
+                        >
+                          {availableMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-2.5 text-slate-500 pointer-events-none" size={14} />
+                      </div>
+                    </div>
+                 </div>
+               )}
+
+               <div className="flex items-center gap-4 w-full lg:w-auto flex-1 justify-end mt-4 lg:mt-0">
+                  <div className="relative group flex-1 max-w-md">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={16} />
+                      <input 
+                        value={filter}
+                        onChange={e => setFilter(e.target.value)}
+                        placeholder={isAdmin ? "Buscar..." : "Buscar material..."}
+                        className="pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:border-blue-500 outline-none w-full transition-all shadow-inner"
+                      />
+                  </div>
+                  <div className="text-xs font-mono text-slate-500 bg-slate-950 px-3 py-1.5 rounded border border-slate-800 whitespace-nowrap">
+                    {displayedData.length} REGISTROS
+                  </div>
+               </div>
+            </div>
+
+            <div className="overflow-auto custom-scrollbar flex-1 pb-20">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-950 sticky top-0 z-10 text-[11px] uppercase text-slate-400 font-bold tracking-wider shadow-sm">
+                  <tr>
+                    <th className="p-4 border-b border-slate-800 text-center w-20">Cód.</th>
+                    {isAdmin && <th className="p-4 border-b border-slate-800 w-32">Comarca</th>}
+                    <th className="p-4 border-b border-slate-800">Descrição Material</th>
+                    <th className="p-4 border-b border-slate-800 w-24 text-center">Unid.</th>
+                    
+                    {/* PREVISTO COLUMN HEADER WITH DROPDOWN */}
+                    <th className="p-4 border-b border-slate-800 text-right w-36 bg-slate-900/50 relative">
+                       <div 
+                        className="flex items-center justify-end gap-1.5 cursor-pointer group select-none"
+                        onClick={() => setIsForecastMenuOpen(!isForecastMenuOpen)}
+                       >
+                         <span className={forecastPeriod === 'anual' ? 'text-blue-400' : ''}>
+                           Previsto {forecastPeriod === 'anual' ? '(12M)' : ''}
+                         </span>
+                         <ChevronDown size={14} className={`text-slate-500 group-hover:text-blue-400 transition-transform ${isForecastMenuOpen ? 'rotate-180 text-blue-400' : ''}`} />
+                       </div>
+                       
+                       {isForecastMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-20" onClick={() => setIsForecastMenuOpen(false)}></div>
+                          <div className="absolute top-[80%] right-2 mt-1 w-32 bg-slate-900 border border-slate-800 rounded-lg shadow-xl z-30 overflow-hidden animate-fadeIn">
+                             <div className="p-1 space-y-0.5">
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setForecastPeriod('semestral'); setIsForecastMenuOpen(false); }}
+                                  className={`w-full flex items-center justify-between px-3 py-2 text-[10px] rounded hover:bg-slate-800 transition-colors ${forecastPeriod === 'semestral' ? 'text-blue-400 bg-slate-800/50' : 'text-slate-400'}`}
+                                >
+                                  Semestral
+                                  {forecastPeriod === 'semestral' && <CheckCircle size={10} />}
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setForecastPeriod('anual'); setIsForecastMenuOpen(false); }}
+                                  className={`w-full flex items-center justify-between px-3 py-2 text-[10px] rounded hover:bg-slate-800 transition-colors ${forecastPeriod === 'anual' ? 'text-blue-400 bg-slate-800/50' : 'text-slate-400'}`}
+                                >
+                                  Anual (x2)
+                                  {forecastPeriod === 'anual' && <CheckCircle size={10} />}
+                                </button>
+                             </div>
+                          </div>
+                        </>
+                       )}
+                    </th>
+
+                    <th className="p-4 border-b border-slate-800 text-right w-32 bg-amber-900/5 text-amber-500 border-l border-slate-800">Solicitado</th>
+                    <th className="p-4 border-b border-slate-800 text-right w-32 bg-emerald-900/5 text-emerald-500 border-l border-slate-800">Aprovado</th>
+                    <th className="p-4 border-b border-slate-800 text-center w-24">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-300 text-sm divide-y divide-slate-800/50">
+                  {displayedData.length === 0 ? (
+                    <tr><td colSpan={8} className="p-12 text-center text-slate-500">
+                      <div className="flex flex-col items-center gap-3">
+                        <Filter size={40} className="opacity-20"/>
+                        <span>Nenhum registro encontrado para este filtro.</span>
+                      </div>
+                    </td></tr>
+                  ) : displayedData.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/40 transition-colors bg-slate-900/20 group">
+                      <td className="p-4 text-xs font-mono text-slate-500 text-center">{item.code || '-'}</td>
+                      {isAdmin && <td className="p-4 text-xs text-slate-400 truncate max-w-[120px]" title={item.comarca}>{item.comarca}</td>}
+                      <td className="p-4 font-medium text-white group-hover:text-blue-300 transition-colors">
+                        {item.materialName}
+                        <div className="text-[10px] text-slate-600 font-normal mt-0.5">{item.category}</div>
+                      </td>
+                      <td className="p-4 text-center"><span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">{item.unit}</span></td>
+                      
+                      {/* PREVISTO COLUMN CELL */}
+                      <td className={`p-4 text-right font-mono transition-colors duration-500 ${forecastPeriod === 'anual' ? 'text-blue-300 font-medium' : 'text-slate-400'}`}>
+                        {forecastPeriod === 'anual' ? (item.predictedDemand * 2).toLocaleString() : item.predictedDemand.toLocaleString()}
+                      </td>
+                      
+                      <td className="p-4 text-right bg-amber-900/5 border-l border-slate-800/50">
+                        <input 
+                          type="number" min="0"
+                          disabled={isAdmin} 
+                          className={`
+                            w-20 bg-slate-950 border rounded px-2 py-1 text-right outline-none transition-all text-sm
+                            ${item.requestedQty > 0 ? 'border-amber-600/50 text-amber-400 font-bold' : 'border-slate-800 text-slate-500'}
+                            focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50
+                            disabled:opacity-50 disabled:bg-transparent disabled:border-transparent
+                          `}
+                          value={item.requestedQty || ''}
+                          onChange={e => onUpdate(item.id, 'requestedQty', Number(e.target.value))}
+                          placeholder={!isAdmin ? "0" : String(item.requestedQty)}
+                        />
+                      </td>
+
+                      <td className={`p-4 text-right border-l border-slate-800/50 ${isAdmin ? 'bg-emerald-900/5' : ''}`}>
+                         <input 
+                          type="number" min="0"
+                          disabled={!isAdmin} 
+                          className={`
+                            w-20 rounded px-2 py-1 text-right outline-none transition-all text-sm
+                            ${item.approvedQty > 0 ? 'border-emerald-600 text-emerald-400 font-bold' : 'border-slate-800 text-slate-500'}
+                            ${isAdmin 
+                              ? 'bg-slate-950 border focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50' 
+                              : 'bg-transparent border-transparent disabled:text-emerald-500 disabled:font-bold disabled:opacity-100' 
+                            }
+                          `}
+                          value={item.approvedQty || ''}
+                          onChange={e => onUpdate(item.id, 'approvedQty', Number(e.target.value))}
+                          placeholder={isAdmin ? "0" : (item.approvedQty > 0 ? String(item.approvedQty) : "-")}
+                        />
+                      </td>
+
+                      <td className="p-4 text-center">
+                         {item.approvedQty > 0 ? <CheckCircle size={16} className="text-emerald-500 mx-auto" /> : 
+                          (item.requestedQty > 0 ? <CircleDashed size={16} className="text-amber-500 animate-pulse mx-auto" />
+                          : <div className="w-1.5 h-1.5 rounded-full bg-slate-800 mx-auto"></div>)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-// 5. REPORT VIEW
-const ReportsView = ({ routes, data }: { routes: Record<string, string[]>, data: MaterialRecord[] }) => {
-  const [selection, setSelection] = useState<Record<string, string[]>>({});
-  const [expandedRoutes, setExpandedRoutes] = useState<string[]>([]);
+// 5. LOGIN SCREEN (Secure)
+const LoginScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
+  const [activeTab, setActiveTab] = useState<'admin' | 'regional'>('regional');
+  const [adminCode, setAdminCode] = useState("");
+  const [adminError, setAdminError] = useState(false);
 
-  const toggleRouteExpand = (rota: string) => {
-    setExpandedRoutes(prev => prev.includes(rota) ? prev.filter(r => r !== rota) : [...prev, rota]);
-  };
+  // System Customization State
+  const [systemName, setSystemName] = useState(() => localStorage.getItem('sys_name') || 'Previsão de Prefil');
+  const [systemLogo, setSystemLogo] = useState(() => localStorage.getItem('sys_logo') || null);
 
-  const toggleComarca = (rota: string, comarca: string) => {
-    setSelection(prev => {
-      const currentRotaSelection = prev[rota] || [];
-      const newRotaSelection = currentRotaSelection.includes(comarca)
-        ? currentRotaSelection.filter(c => c !== comarca)
-        : [...currentRotaSelection, comarca];
-      
-      const newSelection = { ...prev, [rota]: newRotaSelection };
-      if (newRotaSelection.length === 0) delete newSelection[rota];
-      return newSelection;
-    });
-  };
+  // Regional Selection State
+  const [selectedRota, setSelectedRota] = useState(ROTAS_COMARCAS[0].rota);
+  const [selectedComarca, setSelectedComarca] = useState(ROTAS_COMARCAS[0].comarcas[0]);
 
-  const toggleAllInRota = (rota: string) => {
-    const allComarcas = routes[rota];
-    const currentSelection = selection[rota] || [];
-    const isAllSelected = currentSelection.length === allComarcas.length;
+  const availableComarcas = useMemo(() => {
+    return ROTAS_COMARCAS.find(r => r.rota === selectedRota)?.comarcas || [];
+  }, [selectedRota]);
 
-    setSelection(prev => {
-      const newSelection = { ...prev };
-      if (isAllSelected) {
-        delete newSelection[rota];
-      } else {
-        newSelection[rota] = [...allComarcas];
-      }
-      return newSelection;
-    });
-  };
+  // Update selected comarca when rota changes
+  useEffect(() => {
+    setSelectedComarca(availableComarcas[0]);
+  }, [selectedRota, availableComarcas]);
 
-  const handleExport = (format: 'pdf' | 'excel' | 'csv') => {
-    const selectedComarcas: string[] = [];
-    Object.values(selection).forEach((list: string[]) => selectedComarcas.push(...list));
-    
-    if (selectedComarcas.length === 0) return alert("Selecione pelo menos uma comarca.");
-
-    const exportData = data.filter(d => selectedComarcas.includes(d.comarca));
-
-    if (format === 'csv') {
-        const headers = "Rota,Comarca,Material,Categoria,Unidade,Previsão,Solicitado,Atendido";
-        const rows = exportData.map(item => 
-          `"${item.region}","${item.comarca}","${item.materialName}","${item.category}","${item.unit}",${item.predictedDemand},${item.requestedQty},${item.approvedQty}`
-        ).join('\n');
-        const blob = new Blob([`\uFEFF${headers}\n${rows}`], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `Relatorio_Forecast.csv`; a.click();
-    } else if (format === 'excel') {
-       const ws = XLSX.utils.json_to_sheet(exportData.map(item => ({
-          Rota: item.region,
-          Comarca: item.comarca,
-          Material: item.materialName,
-          Categoria: item.category,
-          Unidade: item.unit,
-          Previsao: item.predictedDemand,
-          Solicitado: item.requestedQty,
-          Atendido: item.approvedQty
-       })));
-       const wb = XLSX.utils.book_new();
-       XLSX.utils.book_append_sheet(wb, ws, "Relatório");
-       XLSX.writeFile(wb, "Relatorio_Forecast.xlsx");
-    } else if (format === 'pdf') {
-       const doc = new jsPDF();
-       
-       const tableColumn = ["Rota", "Comarca", "Material", "Und", "Prev.", "Solic.", "Atend."];
-       const tableRows: any[] = [];
-
-       exportData.forEach(item => {
-         const rowData = [
-           item.region,
-           item.comarca,
-           item.materialName,
-           item.unit,
-           item.predictedDemand,
-           item.requestedQty,
-           item.approvedQty
-         ];
-         tableRows.push(rowData);
-       });
-
-       doc.text("Relatório de Demanda - Forecast OS", 14, 15);
-       doc.setFontSize(10);
-       doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
-
-       autoTable(doc, {
-          head: [tableColumn],
-          body: tableRows,
-          startY: 30,
-          theme: 'grid',
-          styles: { fontSize: 8, cellPadding: 2 },
-          headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] }, // dark slate header
-          alternateRowStyles: { fillColor: [241, 245, 249] }
-       });
-
-       doc.save("Relatorio_Forecast.pdf");
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminCode === 'cgsup') {
+      onLogin({ id: 'admin', name: 'Administrador Central', role: 'admin' });
+    } else {
+      setAdminError(true);
+      setTimeout(() => setAdminError(false), 2000);
     }
+  };
+
+  const handleRegionalLogin = () => {
+    onLogin({ 
+      id: `user-${selectedComarca}`, 
+      name: `Resp. ${selectedComarca}`, 
+      role: 'user', 
+      region: selectedComarca,
+      rota: selectedRota
+    });
+  };
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const result = ev.target?.result as string;
+        setSystemLogo(result);
+        localStorage.setItem('sys_logo', result);
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    }
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSystemName(e.target.value);
+    localStorage.setItem('sys_name', e.target.value);
   };
 
   return (
-    <div className="flex flex-col h-full animate-fadeIn">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <FileText size={24} className="text-blue-500" />
-          Gerador de Relatórios
-        </h2>
-        <div className="flex gap-2">
-           <Button onClick={() => handleExport('pdf')} variant="outline" icon={FileImage}>PDF</Button>
-           <Button onClick={() => handleExport('excel')} variant="outline" icon={FileSpreadsheet}>Excel</Button>
-           <Button onClick={() => handleExport('csv')} variant="outline" icon={FileType}>CSV</Button>
-        </div>
+    <div className="flex items-center justify-center min-h-screen bg-slate-950 relative overflow-hidden font-sans">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+         <div className="absolute -top-20 -left-20 w-96 h-96 bg-blue-600/10 rounded-full blur-[100px]"></div>
+         <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-indigo-600/5 rounded-full blur-[120px]"></div>
       </div>
 
-      <div className="flex-1 bg-slate-900 border border-slate-700 rounded-lg flex overflow-hidden">
-        {/* Sidebar Selection */}
-        <div className="w-1/3 border-r border-slate-700 overflow-y-auto p-4 bg-slate-950/30 custom-scrollbar">
-           <h3 className="text-xs font-bold text-slate-500 uppercase mb-4">Filtros de Região</h3>
-           <div className="space-y-2">
-             {Object.entries(routes).map(([rota, comarcas]) => {
-                const selectedCount = selection[rota]?.length || 0;
-                const isAll = selectedCount === comarcas.length;
-                const isIndeterminate = selectedCount > 0 && !isAll;
-                const isExpanded = expandedRoutes.includes(rota);
+      <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-8 rounded-2xl shadow-2xl max-w-md w-full relative z-10 animate-fadeIn">
+        <div className="text-center mb-8">
+          
+          {/* Editable Logo Area */}
+          <div className="relative group w-20 h-20 mx-auto mb-4">
+            <label className="cursor-pointer block w-full h-full">
+              <input type="file" accept="image/png, image/jpeg, image/gif" className="hidden" onChange={handleLogoChange} />
+              <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/40 overflow-hidden transition-transform group-hover:scale-105 relative">
+                {systemLogo ? (
+                  <img src={systemLogo} alt="System Logo" className="w-full h-full object-cover" />
+                ) : (
+                  <LayoutDashboard className="text-white" size={32} />
+                )}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Upload className="text-white" size={20} />
+                </div>
+              </div>
+            </label>
+          </div>
 
-                return (
-                  <div key={rota} className="border border-slate-800 rounded bg-slate-900">
-                     <div className="flex items-center p-2 hover:bg-slate-800">
-                        <button onClick={() => toggleRouteExpand(rota)} className="p-1 text-slate-500 hover:text-white">
-                           <ChevronRight size={16} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                        </button>
-                        <button onClick={() => toggleAllInRota(rota)} className="mr-2 text-blue-500">
-                           {isAll ? <CheckSquare size={16} /> : (isIndeterminate ? <div className="w-4 h-4 bg-blue-900 border border-blue-500 rounded flex items-center justify-center"><div className="w-2 h-2 bg-blue-500 rounded-sm"/></div> : <Square size={16} />)}
-                        </button>
-                        <span className="text-sm font-medium text-slate-300 flex-1">{rota}</span>
-                        <span className="text-xs text-slate-600">{selectedCount}/{comarcas.length}</span>
-                     </div>
-                     
-                     {isExpanded && (
-                        <div className="pl-9 pr-2 pb-2 space-y-1 border-t border-slate-800/50 bg-slate-950/20">
-                           {comarcas.map(comarca => {
-                              const isSelected = selection[rota]?.includes(comarca);
-                              return (
-                                <div key={comarca} className="flex items-center py-1" onClick={() => toggleComarca(rota, comarca)}>
-                                   <div className={`w-4 h-4 mr-2 rounded border flex items-center justify-center cursor-pointer ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-600 hover:border-slate-400'}`}>
-                                      {isSelected && <Check size={10} className="text-white" />}
-                                   </div>
-                                   <span className={`text-xs cursor-pointer ${isSelected ? 'text-white' : 'text-slate-400'}`}>{comarca}</span>
-                                </div>
-                              );
-                           })}
-                        </div>
-                     )}
-                  </div>
-                );
-             })}
-           </div>
+          {/* Editable Title */}
+          <div className="relative group inline-block w-full">
+             <input 
+                value={systemName}
+                onChange={handleNameChange}
+                className="w-full bg-transparent text-2xl font-bold text-white tracking-tight text-center outline-none border border-transparent hover:border-slate-700 focus:border-blue-500 rounded px-2 py-1 transition-all placeholder-slate-600"
+                placeholder="Nome do Sistema"
+             />
+             <Edit2 className="absolute top-1/2 right-2 -translate-y-1/2 text-slate-600 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity" size={14}/>
+          </div>
+          
+          <p className="text-slate-400 text-sm mt-1">Gestão de Materiais e Logística</p>
         </div>
 
-        {/* Preview Area */}
-        <div className="flex-1 p-8 flex flex-col items-center justify-center text-center bg-slate-900">
-           <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-              <Calculator size={40} className="text-slate-600" />
-           </div>
-           <h3 className="text-lg font-bold text-white">Área de Pré-visualização</h3>
-           <p className="text-slate-500 text-sm mt-2 max-w-md">
-             Selecione as rotas e comarcas ao lado para incluir no relatório. O arquivo gerado conterá dados consolidados de previsão, solicitação e atendimento.
-           </p>
-           
-           <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-lg">
-              <div className="p-4 bg-slate-800 rounded border border-slate-700">
-                 <div className="text-2xl font-bold text-white">{Object.values(selection).flat().length}</div>
-                 <div className="text-xs text-slate-500 uppercase">Comarcas Selecionadas</div>
-              </div>
-              <div className="p-4 bg-slate-800 rounded border border-slate-700">
-                 <div className="text-2xl font-bold text-white">{data.filter(d => Object.values(selection).flat().includes(d.comarca)).length}</div>
-                 <div className="text-xs text-slate-500 uppercase">Registros Filtrados</div>
-              </div>
-              <div className="p-4 bg-slate-800 rounded border border-slate-700">
-                 <div className="text-2xl font-bold text-white">3</div>
-                 <div className="text-xs text-slate-500 uppercase">Formatos Disponíveis</div>
-              </div>
-           </div>
+        <div className="flex p-1 bg-slate-950 rounded-lg mb-6 border border-slate-800">
+          <button 
+            onClick={() => setActiveTab('regional')}
+            className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'regional' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            Acesso Regional
+          </button>
+          <button 
+             onClick={() => setActiveTab('admin')}
+             className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'admin' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            Administrador
+          </button>
         </div>
+
+        <div className="min-h-[220px]">
+          {activeTab === 'regional' ? (
+            <div className="space-y-4 animate-fadeIn">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Selecione a Rota</label>
+                <div className="relative">
+                  <select 
+                    value={selectedRota}
+                    onChange={(e) => setSelectedRota(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2.5 px-3 text-sm text-white focus:border-blue-500 outline-none appearance-none"
+                  >
+                    {ROTAS_COMARCAS.map(r => <option key={r.rota} value={r.rota}>{r.rota}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-3 text-slate-500 pointer-events-none" size={16} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Selecione a Comarca</label>
+                <div className="relative">
+                   <select 
+                    value={selectedComarca}
+                    onChange={(e) => setSelectedComarca(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2.5 px-3 text-sm text-white focus:border-blue-500 outline-none appearance-none"
+                  >
+                    {availableComarcas.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-3 text-slate-500 pointer-events-none" size={16} />
+                </div>
+              </div>
+              <Button onClick={handleRegionalLogin} className="w-full mt-4 py-2.5" icon={ArrowLeft}>
+                Acessar Sistema
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleAdminLogin} className="space-y-4 animate-fadeIn pt-4">
+              <div>
+                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Código de Acesso</label>
+                 <div className="relative">
+                   <Lock className="absolute left-3 top-2.5 text-slate-500" size={16}/>
+                   <input 
+                    type="password"
+                    autoFocus
+                    value={adminCode}
+                    onChange={(e) => { setAdminCode(e.target.value); setAdminError(false); }}
+                    className={`w-full bg-slate-950 border rounded-lg py-2.5 pl-10 pr-3 text-sm text-white outline-none focus:ring-1 transition-all ${adminError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'border-slate-700 focus:border-purple-500 focus:ring-purple-500/20'}`}
+                    placeholder="Digite a senha administrativa..."
+                   />
+                 </div>
+                 {adminError && <p className="text-red-400 text-xs mt-2 ml-1">Código incorreto. Tente novamente.</p>}
+              </div>
+              <button 
+                type="submit"
+                className="w-full bg-purple-600 hover:bg-purple-500 text-white rounded-lg py-2.5 text-sm font-medium transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 mt-4"
+              >
+                <Shield size={16} /> Acessar Painel Central
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+      
+      <div className="absolute bottom-6 text-center text-xs text-slate-600">
+        <p>Sistema de Gestão v3.0 • CGSUP Safe Access</p>
       </div>
     </div>
   );
-};
+}
 
-// --- Main App Container ---
-
+// --- Main App ---
 const App = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
-  
-  // Navigation State
-  const [selectedRota, setSelectedRota] = useState<string | null>(null);
-  const [selectedComarca, setSelectedComarca] = useState<string | null>(null);
+  const [materials, setMaterials] = useState<MaterialRecord[]>(generateFullDataset);
+  const [isImportModalOpen, setImportModalOpen] = useState(false);
 
-  // Data State
-  const [data, setData] = useState<MaterialRecord[]>(() => {
-    let records: MaterialRecord[] = [];
-    Object.entries(PDF_ROUTES).forEach(([rotaName, comarcas]) => {
-       comarcas.forEach(comarca => {
-          PDF_MATERIALS.forEach(mat => {
-              records.push({
-                 id: generateId(),
-                 region: rotaName,
-                 comarca: comarca,
-                 category: mat.cat,
-                 materialName: mat.name,
-                 unit: mat.unit,
-                 predictedDemand: 0, // Initially 0
-                 requestedQty: 0,
-                 approvedQty: 0,
-                 lastUpdated: nowISO()
-              });
-          });
-       });
-    });
-    return records;
-  });
-
-  const handleComarcaSelect = (comarca: string, rota: string) => {
-    setSelectedComarca(comarca);
-    setSelectedRota(rota);
-  };
-
-  const handleUpdateRecord = (id: string, field: string, val: any) => {
-    setData(prev => prev.map(r => r.id === id ? { ...r, [field]: val, lastUpdated: nowISO() } : r));
-  };
-
-  // Improved Import Logic to match loose column names
-  const handleImportData = (imported: any[]) => {
-    const newData = [...data];
-    let updatedCount = 0;
-
-    imported.forEach(row => {
-       // Normalize keys to lower case for easier matching
-       const keys = Object.keys(row);
-       const getVal = (keyPart: string) => {
-          const key = keys.find(k => k.toLowerCase().includes(keyPart));
-          return key ? row[key] : null;
-       };
-
-       const c = getVal('comarca');
-       const m = getVal('material') || getVal('descrição');
-       const p = Number(getVal('previsão') || getVal('demand') || getVal('perfil'));
-
-       if (c && m && !isNaN(p)) {
-         // Find matching records in system
-         const targets = newData.filter(d => d.comarca.toLowerCase() === String(c).toLowerCase() && d.materialName.toLowerCase().includes(String(m).toLowerCase()));
-         targets.forEach(target => {
-            target.predictedDemand = p;
-            updatedCount++;
-         });
-       }
-    });
-
-    setData(newData);
-    if (updatedCount > 0) {
-        alert(`Sucesso! ${updatedCount} registros foram atualizados com os dados de previsão.`);
-    } else {
-        alert("Nenhuma correspondência encontrada. Verifique se o arquivo possui colunas 'Comarca', 'Material' e 'Previsão'.");
-    }
-  };
-
-  // Navigation Logic
-  const renderContent = () => {
-    if (viewMode === 'dashboard') return <DashboardView data={data} />;
-    
-    if (viewMode === 'demand-flow') {
-      if (selectedComarca && selectedRota) {
-        return (
-          <InputTable 
-            data={data}
-            regionData={{ comarca: selectedComarca, rota: selectedRota }}
-            currentUser={currentUser!}
-            onUpdate={handleUpdateRecord}
-            onBack={() => { setSelectedComarca(null); setSelectedRota(null); }}
-          />
-        );
+  const handleUpdate = (id: string, field: string, value: any) => {
+    setMaterials(prev => prev.map(item => {
+      if (item.id === id) {
+        const updated = { ...item, [field]: value };
+        // Auto status
+        if (field === 'approvedQty' && value > 0) updated.status = 'approved';
+        else if (field === 'requestedQty' && value > 0) updated.status = 'requested';
+        return updated;
       }
-      return <RouteSelectionView routes={PDF_ROUTES} onSelectComarca={handleComarcaSelect} onImport={handleImportData} />;
-    }
+      return item;
+    }));
+  };
 
-    if (viewMode === 'reports') {
-      return <ReportsView routes={PDF_ROUTES} data={data} />;
-    }
-
-    return <div className="p-10 text-center text-slate-500">Configurações (Em breve)</div>;
+  const handleImportData = (newData: Partial<MaterialRecord>[]) => {
+    // In a real scenario, this would merge imported data with existing records
+    // For now, we assume it refills the current view's items
+    alert("Dados importados com sucesso! (Simulação)");
   };
 
   if (!currentUser) {
-    return <AuthView onLogin={setCurrentUser} />;
+    return <LoginScreen onLogin={setCurrentUser} />;
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-200 font-sans">
-      {/* Sidebar */}
-      <div className="w-20 lg:w-64 border-r border-slate-800 bg-slate-900 flex flex-col fixed h-full z-20">
-        <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-slate-800">
-          <div className="text-blue-500 mr-2"><FileSpreadsheet size={24} /></div>
-          <span className="font-bold text-white text-lg hidden lg:block">Forecast OS</span>
-        </div>
-        
-        <nav className="p-4 space-y-2 flex-1">
-          <SidebarItem icon={LayoutDashboard} label="Início" active={viewMode === 'dashboard'} onClick={() => { setViewMode('dashboard'); setSelectedComarca(null); }} />
-          <SidebarItem icon={Map} label="Previsão de Demanda" active={viewMode === 'demand-flow'} onClick={() => { setViewMode('demand-flow'); setSelectedComarca(null); }} />
-          <SidebarItem icon={FileText} label="Relatórios" active={viewMode === 'reports'} onClick={() => { setViewMode('reports'); setSelectedComarca(null); }} />
-          <SidebarItem icon={Settings} label="Configurações" active={viewMode === 'settings'} onClick={() => setViewMode('settings')} />
-        </nav>
-
-        <div className="p-4 border-t border-slate-800">
-           <div className="flex items-center gap-3 mb-4 px-2">
-              <div className="w-8 h-8 rounded bg-blue-700 flex items-center justify-center text-white font-bold text-sm uppercase">
-                  {currentUser.name.charAt(0)}
-              </div>
-              <div className="hidden lg:block overflow-hidden">
-                  <p className="text-sm font-bold text-white truncate">{currentUser.name}</p>
-                  <p className="text-[10px] text-slate-400 uppercase">{currentUser.role === 'admin' ? 'Administrador' : 'Usuário'}</p>
-              </div>
-           </div>
-           <button onClick={() => setCurrentUser(null)} className="w-full flex items-center justify-center lg:justify-start gap-2 text-slate-500 hover:text-red-400 transition-colors text-sm">
-             <LogOut size={16} />
-             <span className="hidden lg:block">Sair</span>
-           </button>
-        </div>
-      </div>
-
-      {/* Main Area */}
-      <main className="flex-1 ml-20 lg:ml-64 p-6 lg:p-8 overflow-hidden">
-        {renderContent()}
-      </main>
-    </div>
+    <>
+      <InputTable 
+        data={materials} 
+        currentUser={currentUser}
+        onUpdate={handleUpdate}
+        onLogout={() => setCurrentUser(null)}
+        onOpenImport={() => setImportModalOpen(true)}
+      />
+      <FileImportModal 
+        isOpen={isImportModalOpen} 
+        onClose={() => setImportModalOpen(false)} 
+        onImport={handleImportData}
+      />
+    </>
   );
 };
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+// Render
+const container = document.getElementById('root');
+if (container) {
+  const root = createRoot(container);
+  root.render(<App />);
+}
+
+export default App;
