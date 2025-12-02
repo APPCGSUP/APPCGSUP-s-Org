@@ -6,7 +6,7 @@ import {
   FileText, FileSpreadsheet, Image as ImageIcon, X,
   LayoutDashboard, Table as TableIcon, FileCheck, Loader2,
   TrendingUp, AlertCircle, ChevronDown, Download, Printer, Filter,
-  Edit2, File, Calendar
+  Edit2, File, Calendar, Plus, Trash2, UserPlus, Eye, EyeOff
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, 
@@ -119,7 +119,7 @@ const Button = ({
   isLoading
 }: { 
   onClick?: () => void, 
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'success', 
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'success' | 'purple', 
   icon?: React.ElementType, 
   children?: React.ReactNode, 
   className?: string,
@@ -132,7 +132,8 @@ const Button = ({
     secondary: "bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700",
     danger: "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20",
     success: "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-900/20 border border-transparent",
-    ghost: "bg-transparent text-slate-400 hover:text-white hover:bg-slate-800/50"
+    ghost: "bg-transparent text-slate-400 hover:text-white hover:bg-slate-800/50",
+    purple: "bg-purple-600 text-white hover:bg-purple-500 shadow-lg shadow-purple-900/20 border border-transparent"
   };
   
   return (
@@ -633,16 +634,33 @@ const FileImportModal = ({ isOpen, onClose, onImport }: { isOpen: boolean, onClo
       const workbook = XLSX.read(data);
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
-      // Assuming columns: [Code, MaterialName, Category, Unit, PredictedDemand, ..., Rota, Comarca]
-      // Or map by header names if present. For safety, let's look for headers.
-      // Simple logic: treat first row as header if strings, try to map.
-      // If no headers, assume specific order.
-      // Let's assume standard format:
-      // Code | Material | Unit | Predicted | Rota | Comarca
+      if (!jsonData || jsonData.length === 0) {
+        throw new Error("Arquivo vazio");
+      }
 
-      const headers = (jsonData[0] as string[]).map(h => String(h).toLowerCase().trim());
+      // Smart Header Detection
+      // Look for first row that looks like a header (contains key words)
+      let headerRowIndex = 0;
+      let headers: string[] = [];
+      const keywords = ['material', 'descrição', 'descricao', 'cód', 'cod', 'rota', 'comarca'];
+      
+      for(let i = 0; i < Math.min(jsonData.length, 20); i++) {
+         const row = (jsonData[i] || []).map(c => String(c).toLowerCase().trim());
+         // Check if row contains at least 2 keywords
+         const matches = keywords.filter(k => row.some(cell => cell.includes(k)));
+         if (matches.length >= 2) {
+            headerRowIndex = i;
+            headers = row;
+            break;
+         }
+      }
+
+      // Fallback if no smart header found, assume first row
+      if (headers.length === 0 && jsonData.length > 0) {
+         headers = (jsonData[0] || []).map(h => String(h).toLowerCase().trim());
+      }
       
       const parsedRecords: Partial<MaterialRecord>[] = [];
       
@@ -650,24 +668,29 @@ const FileImportModal = ({ isOpen, onClose, onImport }: { isOpen: boolean, onClo
       const getIndex = (keys: string[]) => headers.findIndex(h => keys.some(k => h.includes(k)));
 
       const idxCode = getIndex(['cód', 'cod', 'code']);
-      const idxName = getIndex(['material', 'descri', 'name']);
+      const idxName = getIndex(['material', 'descri', 'name', 'descrição']);
       const idxUnit = getIndex(['unid', 'unit']);
-      const idxPrev = getIndex(['previ', 'demanda', 'demand']);
+      const idxPrev = getIndex(['previ', 'demanda', 'demand', 'meta']);
       const idxRota = getIndex(['rota']);
-      const idxComarca = getIndex(['comarca', 'local']);
+      const idxComarca = getIndex(['comarca', 'local', 'município']);
+      const idxCat = getIndex(['cat', 'grupo', 'classe']);
 
-      for (let i = 1; i < jsonData.length; i++) {
-        const row = jsonData[i] as any[];
+      for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
         if (!row || row.length === 0) continue;
 
         const record: Partial<MaterialRecord> = {};
         
-        if (idxCode >= 0) record.code = String(row[idxCode] || '');
-        if (idxName >= 0) record.materialName = String(row[idxName] || '');
-        if (idxUnit >= 0) record.unit = String(row[idxUnit] || '');
-        if (idxPrev >= 0) record.predictedDemand = Number(row[idxPrev] || 0);
-        if (idxRota >= 0) record.rota = String(row[idxRota] || '');
-        if (idxComarca >= 0) record.comarca = String(row[idxComarca] || '');
+        if (idxCode >= 0) record.code = String(row[idxCode] || '').trim();
+        if (idxName >= 0) record.materialName = String(row[idxName] || '').trim();
+        if (idxUnit >= 0) record.unit = String(row[idxUnit] || '').trim();
+        if (idxPrev >= 0) {
+           const val = row[idxPrev];
+           record.predictedDemand = typeof val === 'number' ? val : Number(String(val).replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+        }
+        if (idxRota >= 0) record.rota = String(row[idxRota] || '').trim();
+        if (idxComarca >= 0) record.comarca = String(row[idxComarca] || '').trim();
+        if (idxCat >= 0) record.category = String(row[idxCat] || '').trim();
         
         // Basic Validation: must have at least a material name
         if (record.materialName) {
@@ -739,19 +762,24 @@ const InputTable = ({
   currentUser,
   onUpdate,
   onLogout,
-  onOpenImport
+  onOpenImport,
+  onAddItem,
+  onDeleteItems
 }: { 
   data: MaterialRecord[], 
   currentUser: User,
   onUpdate: (id: string, field: string, val: any) => void,
   onLogout: () => void,
-  onOpenImport: () => void
+  onOpenImport: () => void,
+  onAddItem: () => void,
+  onDeleteItems: (ids: string[]) => void
 }) => {
-  const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<'table' | 'dashboard' | 'reports'>('table');
   const isAdmin = currentUser.role === 'admin';
   const [forecastPeriod, setForecastPeriod] = useState<'semestral' | 'anual'>('semestral');
   const [isForecastMenuOpen, setIsForecastMenuOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // --- Filters ---
   const [selectedRota, setSelectedRota] = useState<string>("Todas");
@@ -769,7 +797,7 @@ const InputTable = ({
     return ["Todas", ...Array.from(new Set(filtered.map(d => d.comarca)))];
   }, [data, selectedRota]);
 
-  // Filter logic: Admins see everything (filtered by filters & search), Users only see their comarca
+  // Filter logic: Admins see everything (filtered by filters), Users only see their comarca
   const displayedData = useMemo(() => {
     let d = data;
     
@@ -788,14 +816,37 @@ const InputTable = ({
         d = d.filter(item => item.materialName === selectedMaterial);
       }
     }
-
-    // Text search
-    if (filter) {
-      const f = filter.toLowerCase();
-      d = d.filter(item => item.materialName.toLowerCase().includes(f) || item.code?.includes(f) || item.comarca.toLowerCase().includes(f));
-    }
     return d;
-  }, [data, filter, isAdmin, currentUser.region, selectedRota, selectedComarca, selectedMaterial]);
+  }, [data, isAdmin, currentUser.region, selectedRota, selectedComarca, selectedMaterial]);
+
+  // Selection Logic
+  const toggleSelection = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
+
+  const toggleAll = () => {
+    const allDisplayedSelected = displayedData.length > 0 && displayedData.every(d => selectedIds.has(d.id));
+    if (allDisplayedSelected) {
+      // Deselect all displayed
+      const newSet = new Set(selectedIds);
+      displayedData.forEach(d => newSet.delete(d.id));
+      setSelectedIds(newSet);
+    } else {
+      // Select all displayed
+      const newSet = new Set(selectedIds);
+      displayedData.forEach(d => newSet.add(d.id));
+      setSelectedIds(newSet);
+    }
+  };
+
+  const confirmDelete = () => {
+    onDeleteItems(Array.from(selectedIds));
+    setSelectedIds(new Set());
+    setShowDeleteConfirm(false);
+  };
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 p-4 md:p-6 overflow-hidden">
@@ -904,15 +955,16 @@ const InputTable = ({
                )}
 
                <div className="flex items-center gap-4 w-full lg:w-auto flex-1 justify-end mt-4 lg:mt-0">
-                  <div className="relative group flex-1 max-w-md">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={16} />
-                      <input 
-                        value={filter}
-                        onChange={e => setFilter(e.target.value)}
-                        placeholder={isAdmin ? "Buscar..." : "Buscar material..."}
-                        className="pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:border-blue-500 outline-none w-full transition-all shadow-inner"
-                      />
-                  </div>
+                  {isAdmin && selectedIds.size > 0 && (
+                    <Button onClick={() => setShowDeleteConfirm(true)} variant="danger" icon={Trash2}>
+                      Excluir ({selectedIds.size})
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button onClick={onAddItem} variant="purple" icon={Plus} className="shadow-purple-900/20">
+                      Adicionar Item
+                    </Button>
+                  )}
                   <div className="text-xs font-mono text-slate-500 bg-slate-950 px-3 py-1.5 rounded border border-slate-800 whitespace-nowrap">
                     {displayedData.length} REGISTROS
                   </div>
@@ -923,7 +975,17 @@ const InputTable = ({
               <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-950 sticky top-0 z-10 text-[11px] uppercase text-slate-400 font-bold tracking-wider shadow-sm">
                   <tr>
-                    <th className="p-4 border-b border-slate-800 text-center w-20">Cód.</th>
+                    {isAdmin && (
+                      <th className="p-4 border-b border-slate-800 w-10 text-center">
+                        <input 
+                          type="checkbox" 
+                          checked={displayedData.length > 0 && displayedData.every(d => selectedIds.has(d.id))}
+                          onChange={toggleAll}
+                          className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                        />
+                      </th>
+                    )}
+                    <th className="p-4 border-b border-slate-800 text-center w-24">Cód.</th>
                     {isAdmin && <th className="p-4 border-b border-slate-800 w-32">Comarca</th>}
                     <th className="p-4 border-b border-slate-800">Descrição Material</th>
                     <th className="p-4 border-b border-slate-800 w-24 text-center">Unid.</th>
@@ -972,27 +1034,49 @@ const InputTable = ({
                 </thead>
                 <tbody className="text-slate-300 text-sm divide-y divide-slate-800/50">
                   {displayedData.length === 0 ? (
-                    <tr><td colSpan={8} className="p-12 text-center text-slate-500">
+                    <tr><td colSpan={isAdmin ? 9 : 8} className="p-12 text-center text-slate-500">
                       <div className="flex flex-col items-center gap-3">
                         <Filter size={40} className="opacity-20"/>
                         <span>Nenhum registro encontrado para este filtro.</span>
                       </div>
                     </td></tr>
                   ) : displayedData.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-800/40 transition-colors bg-slate-900/20 group">
+                    <tr key={item.id} className={`hover:bg-slate-800/40 transition-colors group ${selectedIds.has(item.id) ? 'bg-blue-900/10' : 'bg-slate-900/20'}`}>
                       
+                      {isAdmin && (
+                        <td className="p-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedIds.has(item.id)}
+                            onChange={(e) => { e.stopPropagation(); toggleSelection(item.id); }}
+                            className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                          />
+                        </td>
+                      )}
+
                       <td className="p-4 text-center">
                         <input 
                           type="text" 
                           disabled={!isAdmin}
                           value={item.code || ''}
                           onChange={(e) => onUpdate(item.id, 'code', e.target.value)}
-                          className={`w-full max-w-[100px] text-xs font-mono text-center bg-transparent border rounded px-2 py-1 outline-none transition-all ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-slate-300' : 'border-transparent text-slate-500 cursor-default'}`}
+                          className={`w-full max-w-[100px] text-sm font-bold font-mono text-center bg-transparent border rounded px-2 py-1 outline-none transition-all ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-slate-200' : 'border-transparent text-slate-400 cursor-default'}`}
                           placeholder="-"
                         />
                       </td>
 
-                      {isAdmin && <td className="p-4 text-xs text-slate-400 truncate max-w-[120px]" title={item.comarca}>{item.comarca}</td>}
+                      {isAdmin && (
+                        <td className="p-4">
+                           <input 
+                            type="text"
+                            disabled={!isAdmin}
+                            value={item.comarca}
+                            onChange={(e) => onUpdate(item.id, 'comarca', e.target.value)}
+                            className="w-full text-xs bg-transparent border border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-slate-400 rounded px-2 py-1 outline-none transition-all"
+                            placeholder="Comarca"
+                          />
+                        </td>
+                      )}
                       
                       <td className="p-4">
                         <input 
@@ -1002,14 +1086,42 @@ const InputTable = ({
                           onChange={(e) => onUpdate(item.id, 'materialName', e.target.value)}
                           className={`w-full font-medium bg-transparent border rounded px-2 py-1 outline-none transition-all ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-white' : 'border-transparent text-white cursor-default group-hover:text-blue-300'}`}
                         />
-                        <div className="text-[10px] text-slate-600 font-normal mt-0.5 px-2">{item.category}</div>
+                        {/* CATEGORY EDITABLE - Increased visibility */}
+                        <input 
+                          type="text"
+                          disabled={!isAdmin}
+                          value={item.category}
+                          onChange={(e) => onUpdate(item.id, 'category', e.target.value)}
+                          className={`w-full text-[11px] mt-0.5 bg-transparent border rounded px-2 py-0.5 outline-none transition-all ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-slate-300 focus:text-white' : 'border-transparent text-slate-500 cursor-default'}`}
+                          placeholder="Categoria"
+                        />
                       </td>
                       
-                      <td className="p-4 text-center"><span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">{item.unit}</span></td>
+                      <td className="p-4 text-center">
+                         <input 
+                            type="text"
+                            disabled={!isAdmin}
+                            value={item.unit}
+                            onChange={(e) => onUpdate(item.id, 'unit', e.target.value)}
+                            className={`w-full max-w-[60px] text-[10px] text-center bg-transparent border rounded px-1 py-1 outline-none transition-all font-mono uppercase ${isAdmin ? 'border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-slate-300' : 'border-transparent text-slate-400 cursor-default'}`}
+                            placeholder="UN"
+                          />
+                      </td>
                       
-                      {/* PREVISTO COLUMN CELL */}
-                      <td className={`p-4 text-right font-mono transition-colors duration-500 ${forecastPeriod === 'anual' ? 'text-blue-300 font-medium' : 'text-slate-400'}`}>
-                        {forecastPeriod === 'anual' ? (item.predictedDemand * 2).toLocaleString() : item.predictedDemand.toLocaleString()}
+                      {/* PREVISTO COLUMN CELL - EDITABLE FOR ADMIN & BIGGER FONT */}
+                      <td className={`p-4 text-right font-mono transition-colors duration-500 ${forecastPeriod === 'anual' && !isAdmin ? 'text-blue-300 font-medium' : 'text-slate-300'}`}>
+                        {isAdmin ? (
+                           <input 
+                            type="number"
+                            value={item.predictedDemand}
+                            onChange={(e) => onUpdate(item.id, 'predictedDemand', Number(e.target.value))}
+                            className="w-24 bg-transparent border border-transparent hover:border-slate-700 focus:border-blue-500 focus:bg-slate-950 text-right rounded px-2 py-1 outline-none transition-all text-base font-bold text-slate-200"
+                          />
+                        ) : (
+                          <span className="text-base font-bold">
+                            {forecastPeriod === 'anual' ? (item.predictedDemand * 2).toLocaleString() : item.predictedDemand.toLocaleString()}
+                          </span>
+                        )}
                       </td>
                       
                       <td className="p-4 text-right bg-amber-900/5 border-l border-slate-800/50">
@@ -1059,290 +1171,231 @@ const InputTable = ({
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl animate-fadeIn">
+              <h3 className="text-lg font-bold text-white mb-2">Confirmar Exclusão</h3>
+              <p className="text-slate-400 text-sm mb-6">
+                 Você está prestes a excluir <span className="text-white font-bold">{selectedIds.size}</span> item(s). 
+                 Esta ação não pode ser desfeita.
+              </p>
+              <div className="flex justify-end gap-3">
+                 <Button variant="secondary" onClick={() => setShowDeleteConfirm(false)}>Cancelar</Button>
+                 <Button variant="danger" onClick={confirmDelete}>Sim, Excluir</Button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // 5. LOGIN SCREEN (Secure)
-const LoginScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
-  const [activeTab, setActiveTab] = useState<'admin' | 'regional'>('regional');
-  const [adminCode, setAdminCode] = useState("");
-  const [adminError, setAdminError] = useState(false);
+const LoginScreen = ({ onLogin }: { onLogin: (u: User) => void }) => {
+  const [loginType, setLoginType] = useState<'regional' | 'admin'>('regional');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState('');
+  
+  // Extract unique regions for dropdown
+  const uniqueComarcas = useMemo(() => {
+    return Array.from(new Set(ROTAS_COMARCAS.flatMap(r => r.comarcas))).sort();
+  }, []);
 
-  // System Customization State
-  const [systemName, setSystemName] = useState(() => localStorage.getItem('sys_name') || 'Previsão de Perfil');
-  const [systemLogo, setSystemLogo] = useState(() => localStorage.getItem('sys_logo') || null);
-
-  // Regional Selection State
-  const [selectedRota, setSelectedRota] = useState(ROTAS_COMARCAS[0].rota);
-  const [selectedComarca, setSelectedComarca] = useState(ROTAS_COMARCAS[0].comarcas[0]);
-
-  const availableComarcas = useMemo(() => {
-    return ROTAS_COMARCAS.find(r => r.rota === selectedRota)?.comarcas || [];
-  }, [selectedRota]);
-
-  // Update selected comarca when rota changes
-  useEffect(() => {
-    setSelectedComarca(availableComarcas[0]);
-  }, [selectedRota, availableComarcas]);
-
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminCode === 'cgsup') {
-      onLogin({ id: 'admin', name: 'Administrador Central', role: 'admin' });
+    if (loginType === 'admin') {
+      if (password === 'admin123') {
+        onLogin({ id: 'admin', name: 'Administrador', role: 'admin' });
+      } else {
+        setError('Senha de administrador inválida');
+      }
     } else {
-      setAdminError(true);
-      setTimeout(() => setAdminError(false), 2000);
+      if (password === 'user123' && selectedRegion) {
+        // Find the rota for the region
+        const rota = ROTAS_COMARCAS.find(r => r.comarcas.includes(selectedRegion))?.rota || 'Desconhecida';
+        onLogin({ id: 'user', name: selectedRegion, role: 'user', region: selectedRegion, rota });
+      } else {
+        setError('Credenciais inválidas ou região não selecionada');
+      }
     }
-  };
-
-  const handleRegionalLogin = () => {
-    onLogin({ 
-      id: `user-${selectedComarca}`, 
-      name: `Resp. ${selectedComarca}`, 
-      role: 'user', 
-      region: selectedComarca,
-      rota: selectedRota
-    });
-  };
-
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const result = ev.target?.result as string;
-        setSystemLogo(result);
-        localStorage.setItem('sys_logo', result);
-      };
-      reader.readAsDataURL(e.target.files[0]);
-    }
-  };
-
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSystemName(e.target.value);
-    localStorage.setItem('sys_name', e.target.value);
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-950 relative overflow-hidden font-sans">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-         <div className="absolute -top-20 -left-20 w-96 h-96 bg-blue-600/10 rounded-full blur-[100px]"></div>
-         <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-indigo-600/5 rounded-full blur-[120px]"></div>
+    <div className="flex h-screen bg-slate-950 items-center justify-center p-4 relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+         <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-blue-500/10 rounded-full blur-[120px]"></div>
+         <div className="absolute top-[60%] -right-[10%] w-[40%] h-[60%] bg-purple-500/10 rounded-full blur-[100px]"></div>
       </div>
 
-      <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-8 rounded-2xl shadow-2xl max-w-md w-full relative z-10 animate-fadeIn">
-        <div className="text-center mb-8">
-          
-          {/* Editable Logo Area */}
-          <div className="relative group w-20 h-20 mx-auto mb-4">
-            <label className="cursor-pointer block w-full h-full">
-              <input type="file" accept="image/png, image/jpeg, image/gif" className="hidden" onChange={handleLogoChange} />
-              <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/40 overflow-hidden transition-transform group-hover:scale-105 relative">
-                {systemLogo ? (
-                  <img src={systemLogo} alt="System Logo" className="w-full h-full object-cover" />
-                ) : (
-                  <LayoutDashboard className="text-white" size={32} />
-                )}
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Upload className="text-white" size={20} />
-                </div>
-              </div>
-            </label>
-          </div>
+      <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-blue-500/20 shadow-blue-900/20 p-8 z-10 animate-fadeIn relative">
+        {/* Register Button Icon */}
+        <button 
+          onClick={() => alert("Funcionalidade de cadastro em desenvolvimento.")}
+          className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors p-2 rounded-full hover:bg-slate-800"
+          title="Cadastrar Login"
+        >
+          <UserPlus size={20} />
+        </button>
 
-          {/* Editable Title */}
-          <div className="relative group inline-block w-full">
-             <input 
-                value={systemName}
-                onChange={handleNameChange}
-                className="w-full bg-transparent text-2xl font-bold text-white tracking-tight text-center outline-none border border-transparent hover:border-slate-700 focus:border-blue-500 rounded px-2 py-1 transition-all placeholder-slate-600"
-                placeholder="Nome do Sistema"
-             />
-             <Edit2 className="absolute top-1/2 right-2 -translate-y-1/2 text-slate-600 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity" size={14}/>
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20">
+            <Shield size={32} className="text-white" />
           </div>
-          
-          <p className="text-slate-400 text-sm mt-1">Gestão de Materiais e Logística</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Previsão de Perfil</h1>
+          <p className="text-slate-500 mt-2 text-sm">Sistema de Previsão e Controle</p>
         </div>
 
-        <div className="flex p-1 bg-slate-950 rounded-lg mb-6 border border-slate-800">
+        {/* Toggle Switch */}
+        <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
           <button 
-            onClick={() => setActiveTab('regional')}
-            className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'regional' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+            type="button"
+            onClick={() => { setLoginType('regional'); setError(''); }}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${loginType === 'regional' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
           >
-            Acesso Regional
+            Regional
           </button>
           <button 
-             onClick={() => setActiveTab('admin')}
-             className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'admin' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+            type="button"
+            onClick={() => { setLoginType('admin'); setError(''); }}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${loginType === 'admin' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
           >
             Administrador
           </button>
         </div>
 
-        <div className="min-h-[220px]">
-          {activeTab === 'regional' ? (
-            <div className="space-y-4 animate-fadeIn">
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Selecione a Rota</label>
-                <div className="relative">
-                  <select 
-                    value={selectedRota}
-                    onChange={(e) => setSelectedRota(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2.5 px-3 text-sm text-white focus:border-blue-500 outline-none appearance-none"
-                  >
-                    {ROTAS_COMARCAS.map(r => <option key={r.rota} value={r.rota}>{r.rota}</option>)}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-3 text-slate-500 pointer-events-none" size={16} />
-                </div>
+        <form onSubmit={handleLogin} className="space-y-4">
+          
+          {loginType === 'regional' && (
+            <div className="animate-fadeIn">
+              <label className="block text-xs font-semibold text-slate-400 uppercase mb-1.5 ml-1">Região de Acesso</label>
+              <div className="relative group">
+                <MapPin className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
+                <select 
+                  value={selectedRegion}
+                  onChange={e => setSelectedRegion(e.target.value)}
+                  className="w-full bg-slate-950 text-slate-300 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all appearance-none"
+                >
+                  <option value="">Selecione sua Comarca...</option>
+                  {uniqueComarcas.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-3 text-slate-500 pointer-events-none" size={16}/>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Selecione a Comarca</label>
-                <div className="relative">
-                   <select 
-                    value={selectedComarca}
-                    onChange={(e) => setSelectedComarca(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2.5 px-3 text-sm text-white focus:border-blue-500 outline-none appearance-none"
-                  >
-                    {availableComarcas.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-3 text-slate-500 pointer-events-none" size={16} />
-                </div>
-              </div>
-              <Button onClick={handleRegionalLogin} className="w-full mt-4 py-2.5" icon={ArrowLeft}>
-                Acessar Sistema
-              </Button>
             </div>
-          ) : (
-            <form onSubmit={handleAdminLogin} className="space-y-4 animate-fadeIn pt-4">
-              <div>
-                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Código de Acesso</label>
-                 <div className="relative">
-                   <Lock className="absolute left-3 top-2.5 text-slate-500" size={16}/>
-                   <input 
-                    type="password"
-                    autoFocus
-                    value={adminCode}
-                    onChange={(e) => { setAdminCode(e.target.value); setAdminError(false); }}
-                    className={`w-full bg-slate-950 border rounded-lg py-2.5 pl-10 pr-3 text-sm text-white outline-none focus:ring-1 transition-all ${adminError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'border-slate-700 focus:border-purple-500 focus:ring-purple-500/20'}`}
-                    placeholder="Digite a senha administrativa..."
-                   />
-                 </div>
-                 {adminError && <p className="text-red-400 text-xs mt-2 ml-1">Código incorreto. Tente novamente.</p>}
-              </div>
-              <button 
-                type="submit"
-                className="w-full bg-purple-600 hover:bg-purple-500 text-white rounded-lg py-2.5 text-sm font-medium transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 mt-4"
-              >
-                <Shield size={16} /> Acessar Painel Central
-              </button>
-            </form>
           )}
+
+          <div className="animate-fadeIn">
+             <label className="block text-xs font-semibold text-slate-400 uppercase mb-1.5 ml-1">
+               {loginType === 'admin' ? 'Senha Administrativa' : 'Senha de Acesso'}
+             </label>
+             <div className="relative group">
+              <Lock className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
+              <input 
+                type="password" 
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-slate-950 text-white border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all placeholder:text-slate-600"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-sm text-red-400 animate-fadeIn">
+              <AlertCircle size={16} /> {error}
+            </div>
+          )}
+
+          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/40 active:scale-[0.98]">
+            Entrar no Sistema
+          </button>
+        </form>
+        
+        <div className="mt-6 text-center text-xs text-slate-600">
+          Versão 2.4.0 • Acesso Seguro
         </div>
-      </div>
-      
-      <div className="absolute bottom-6 text-center text-xs text-slate-600">
-        <p>Sistema de Gestão v3.0 • CGSUP Safe Access</p>
       </div>
     </div>
   );
-}
+};
 
-// --- Main App ---
+// 6. APP ORCHESTRATOR
 const App = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [materials, setMaterials] = useState<MaterialRecord[]>(generateFullDataset);
-  const [isImportModalOpen, setImportModalOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [data, setData] = useState<MaterialRecord[]>(() => generateFullDataset());
+  const [showImport, setShowImport] = useState(false);
 
   const handleUpdate = (id: string, field: string, value: any) => {
-    setMaterials(prev => prev.map(item => {
-      if (item.id === id) {
-        const updated = { ...item, [field]: value };
-        // Auto status
-        if (field === 'approvedQty' && value > 0) updated.status = 'approved';
-        else if (field === 'requestedQty' && value > 0) updated.status = 'requested';
-        return updated;
-      }
-      return item;
+    setData(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  const handleImport = (importedData: Partial<MaterialRecord>[]) => {
+    // Merge logic: Add as new items or update existing? 
+    // For simplicity, let's append as new items with generated IDs
+    const newItems: MaterialRecord[] = importedData.map((d, i) => ({
+       id: `imp-${Date.now()}-${i}`,
+       code: d.code,
+       rota: d.rota || 'Indefinida',
+       comarca: d.comarca || 'Indefinida',
+       materialName: d.materialName || 'Novo Material',
+       category: d.category || 'Geral',
+       unit: d.unit || 'UN',
+       predictedDemand: d.predictedDemand || 0,
+       requestedQty: 0,
+       approvedQty: 0,
+       status: 'pending'
     }));
+    
+    setData(prev => [...newItems, ...prev]);
   };
 
-  const handleImportData = (newData: Partial<MaterialRecord>[]) => {
-    // In a real scenario, this would merge imported data with existing records
-    // For now, we assume it refills the current view's items with matches from imported data.
-    // However, to keep it simple as per original behavior, we just alert or could refresh the dataset.
-    // The previous implementation was just alerting.
-    
-    // Let's implement a basic update logic: if imported data matches comarca/material, update predicted demand or similar.
-    // Or if the user wants to REPLACE the data, we would do that. 
-    // Given the prompt "update codigo, comarca, rota, descricao, unid, previsto", let's try to update existing records
-    // or create new ones if they don't exist.
-    
-    // For simplicity in this demo without backend:
-    // We will map over existing materials and see if we find a match in newData to update.
-    
-    setMaterials(prev => {
-       const updatedMaterials = [...prev];
-       
-       newData.forEach(newRecord => {
-          // Try to find a match by Material Name and Comarca (if provided)
-          // If no comarca in newRecord, maybe apply to all? 
-          // Let's assume the import file contains specific rows for specific comarcas.
-          
-          if (newRecord.materialName && newRecord.comarca) {
-             const index = updatedMaterials.findIndex(m => 
-                m.comarca === newRecord.comarca && 
-                m.materialName === newRecord.materialName
-             );
-             
-             if (index >= 0) {
-                // Update existing
-                updatedMaterials[index] = { 
-                   ...updatedMaterials[index], 
-                   ...newRecord,
-                   // Preserve ID and existing quantities if not specified
-                   requestedQty: updatedMaterials[index].requestedQty,
-                   approvedQty: updatedMaterials[index].approvedQty
-                };
-             } else {
-                // Add new (optional, depends if we want to expand the list)
-                // For now, let's just update existing to avoid duplicates if ID logic isn't robust
-             }
-          }
-       });
-       
-       return updatedMaterials;
-    });
-
-    alert(`Processamento concluído. ${newData.length} linhas lidas.`);
+  const handleAddItem = () => {
+    const newItem: MaterialRecord = {
+      id: `new-${Date.now()}`,
+      code: '',
+      rota: 'Indefinida',
+      comarca: 'Indefinida',
+      materialName: 'Novo Item',
+      category: 'Geral',
+      unit: 'UNID',
+      predictedDemand: 0,
+      requestedQty: 0,
+      approvedQty: 0,
+      status: 'pending'
+    };
+    setData(prev => [newItem, ...prev]);
   };
 
-  if (!currentUser) {
-    return <LoginScreen onLogin={setCurrentUser} />;
+  const handleDeleteItems = (ids: string[]) => {
+    setData(prev => prev.filter(item => !ids.includes(item.id)));
+  };
+
+  if (!user) {
+    return <LoginScreen onLogin={setUser} />;
   }
 
   return (
     <>
       <InputTable 
-        data={materials} 
-        currentUser={currentUser}
-        onUpdate={handleUpdate}
-        onLogout={() => setCurrentUser(null)}
-        onOpenImport={() => setImportModalOpen(true)}
+        data={data} 
+        currentUser={user} 
+        onUpdate={handleUpdate} 
+        onLogout={() => setUser(null)}
+        onOpenImport={() => setShowImport(true)}
+        onAddItem={handleAddItem}
+        onDeleteItems={handleDeleteItems}
       />
       <FileImportModal 
-        isOpen={isImportModalOpen} 
-        onClose={() => setImportModalOpen(false)} 
-        onImport={handleImportData}
+        isOpen={showImport} 
+        onClose={() => setShowImport(false)} 
+        onImport={handleImport}
       />
     </>
   );
 };
 
-// Render
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(<App />);
-}
-
-export default App;
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);
