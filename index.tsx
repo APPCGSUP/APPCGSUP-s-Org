@@ -6,7 +6,7 @@ import {
   FileText, FileSpreadsheet, Image as ImageIcon, X,
   LayoutDashboard, Table as TableIcon, FileCheck, Loader2,
   TrendingUp, AlertCircle, ChevronDown, Download, Printer, Filter,
-  Edit2, File, Calendar, Plus, Trash2, UserPlus, Eye, EyeOff
+  Edit2, File, Calendar, Plus, Trash2, UserPlus, RotateCcw
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, 
@@ -116,7 +116,8 @@ const Button = ({
   children, 
   className,
   disabled,
-  isLoading
+  isLoading,
+  title
 }: { 
   onClick?: () => void, 
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'success' | 'purple', 
@@ -124,7 +125,8 @@ const Button = ({
   children?: React.ReactNode, 
   className?: string,
   disabled?: boolean,
-  isLoading?: boolean
+  isLoading?: boolean,
+  title?: string
 }) => {
   const baseStyles = "px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95";
   const variants = {
@@ -137,7 +139,7 @@ const Button = ({
   };
   
   return (
-    <button onClick={onClick} disabled={disabled || isLoading} className={`${baseStyles} ${variants[variant]} ${className || ''}`}>
+    <button onClick={onClick} disabled={disabled || isLoading} className={`${baseStyles} ${variants[variant]} ${className || ''}`} title={title}>
       {isLoading ? <Loader2 size={16} className="animate-spin" /> : (Icon && <Icon size={18} />)}
       {children}
     </button>
@@ -884,7 +886,7 @@ const InputTable = ({
            )}
            <div className="w-px h-6 bg-slate-800 mx-1"></div>
            {isAdmin && <Button onClick={onOpenImport} variant="ghost" icon={Upload} className="!p-2" />}
-           <Button onClick={onLogout} variant="ghost" icon={LogOut} className="!p-2 text-red-400 hover:bg-red-900/20" />
+           <Button onClick={onLogout} variant="ghost" icon={RotateCcw} className="!p-2 text-red-400 hover:bg-red-900/20" title="Reiniciar Sistema" />
         </div>
       </div>
 
@@ -1192,130 +1194,93 @@ const InputTable = ({
   );
 };
 
-// 5. LOGIN SCREEN (Secure)
-const LoginScreen = ({ onLogin }: { onLogin: (u: User) => void }) => {
-  const [loginType, setLoginType] = useState<'regional' | 'admin'>('regional');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [selectedRegion, setSelectedRegion] = useState('');
+// 5. LOGIN SCREEN
+const LoginScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
+  const [selectedRole, setSelectedRole] = useState<'admin' | 'user'>('user');
+  const [selectedComarca, setSelectedComarca] = useState<string>('');
   
-  // Extract unique regions for dropdown
-  const uniqueComarcas = useMemo(() => {
-    return Array.from(new Set(ROTAS_COMARCAS.flatMap(r => r.comarcas))).sort();
+  // Flatten comarcas for dropdown
+  const allComarcas = useMemo(() => {
+    return ROTAS_COMARCAS.flatMap(r => r.comarcas.map(c => ({ rota: r.rota, comarca: c })));
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loginType === 'admin') {
-      if (password === 'admin123') {
-        onLogin({ id: 'admin', name: 'Administrador', role: 'admin' });
-      } else {
-        setError('Senha de administrador inválida');
-      }
+  const handleLogin = () => {
+    if (selectedRole === 'admin') {
+      onLogin({
+        id: 'admin-1',
+        name: 'Administrador',
+        role: 'admin'
+      });
     } else {
-      if (password === 'user123' && selectedRegion) {
-        // Find the rota for the region
-        const rota = ROTAS_COMARCAS.find(r => r.comarcas.includes(selectedRegion))?.rota || 'Desconhecida';
-        onLogin({ id: 'user', name: selectedRegion, role: 'user', region: selectedRegion, rota });
-      } else {
-        setError('Credenciais inválidas ou região não selecionada');
-      }
+      if (!selectedComarca) return;
+      const location = allComarcas.find(c => c.comarca === selectedComarca);
+      onLogin({
+        id: `user-${selectedComarca}`,
+        name: `Usuário ${selectedComarca}`,
+        role: 'user',
+        region: selectedComarca,
+        rota: location?.rota
+      });
     }
   };
 
   return (
-    <div className="flex h-screen bg-slate-950 items-center justify-center p-4 relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-         <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-blue-500/10 rounded-full blur-[120px]"></div>
-         <div className="absolute top-[60%] -right-[10%] w-[40%] h-[60%] bg-purple-500/10 rounded-full blur-[100px]"></div>
-      </div>
-
-      <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-blue-500/20 shadow-blue-900/20 p-8 z-10 animate-fadeIn relative">
-        {/* Register Button Icon */}
-        <button 
-          onClick={() => alert("Funcionalidade de cadastro em desenvolvimento.")}
-          className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors p-2 rounded-full hover:bg-slate-800"
-          title="Cadastrar Login"
-        >
-          <UserPlus size={20} />
-        </button>
-
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20">
-            <Shield size={32} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Previsão de Perfil</h1>
-          <p className="text-slate-500 mt-2 text-sm">Sistema de Previsão e Controle</p>
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md animate-fadeIn">
+        <div className="flex flex-col items-center mb-8">
+           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-900/50">
+             <LayoutDashboard size={32} className="text-white" />
+           </div>
+           <h1 className="text-2xl font-bold text-white">Gestão de Materiais</h1>
+           <p className="text-slate-400">Acesse o sistema</p>
         </div>
 
-        {/* Toggle Switch */}
-        <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
-          <button 
-            type="button"
-            onClick={() => { setLoginType('regional'); setError(''); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${loginType === 'regional' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Regional
-          </button>
-          <button 
-            type="button"
-            onClick={() => { setLoginType('admin'); setError(''); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${loginType === 'admin' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Administrador
-          </button>
+        <div className="space-y-4">
+           <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+             <button 
+               onClick={() => setSelectedRole('user')}
+               className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${selectedRole === 'user' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+               Unidade / Comarca
+             </button>
+             <button 
+               onClick={() => setSelectedRole('admin')}
+               className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${selectedRole === 'admin' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+               Administrador
+             </button>
+           </div>
+
+           {selectedRole === 'user' && (
+             <div className="space-y-2">
+               <label className="text-xs font-bold text-slate-500 uppercase">Selecione sua Comarca</label>
+               <div className="relative">
+                 <MapPin className="absolute left-3 top-3 text-slate-500" size={18} />
+                 <select 
+                   className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg py-2.5 pl-10 pr-4 outline-none focus:border-blue-500 transition-colors appearance-none"
+                   value={selectedComarca}
+                   onChange={(e) => setSelectedComarca(e.target.value)}
+                 >
+                   <option value="">Selecione...</option>
+                   {allComarcas.map((c, i) => (
+                     <option key={i} value={c.comarca}>{c.comarca} ({c.rota})</option>
+                   ))}
+                 </select>
+               </div>
+             </div>
+           )}
+
+           <Button 
+             onClick={handleLogin} 
+             className="w-full justify-center py-3 mt-4" 
+             disabled={selectedRole === 'user' && !selectedComarca}
+           >
+             Entrar no Sistema
+           </Button>
         </div>
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          
-          {loginType === 'regional' && (
-            <div className="animate-fadeIn">
-              <label className="block text-xs font-semibold text-slate-400 uppercase mb-1.5 ml-1">Região de Acesso</label>
-              <div className="relative group">
-                <MapPin className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
-                <select 
-                  value={selectedRegion}
-                  onChange={e => setSelectedRegion(e.target.value)}
-                  className="w-full bg-slate-950 text-slate-300 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all appearance-none"
-                >
-                  <option value="">Selecione sua Comarca...</option>
-                  {uniqueComarcas.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <ChevronDown className="absolute right-3 top-3 text-slate-500 pointer-events-none" size={16}/>
-              </div>
-            </div>
-          )}
-
-          <div className="animate-fadeIn">
-             <label className="block text-xs font-semibold text-slate-400 uppercase mb-1.5 ml-1">
-               {loginType === 'admin' ? 'Senha Administrativa' : 'Senha de Acesso'}
-             </label>
-             <div className="relative group">
-              <Lock className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
-              <input 
-                type="password" 
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full bg-slate-950 text-white border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all placeholder:text-slate-600"
-                placeholder="••••••••"
-              />
-            </div>
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-sm text-red-400 animate-fadeIn">
-              <AlertCircle size={16} /> {error}
-            </div>
-          )}
-
-          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/40 active:scale-[0.98]">
-            Entrar no Sistema
-          </button>
-        </form>
         
-        <div className="mt-6 text-center text-xs text-slate-600">
-          Versão 2.4.0 • Acesso Seguro
+        <div className="mt-8 text-center text-xs text-slate-600">
+          &copy; 2024 Sistema de Gestão TJCE
         </div>
       </div>
     </div>
